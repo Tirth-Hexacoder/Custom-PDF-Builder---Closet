@@ -1,22 +1,48 @@
 import { A4_PX } from "@closet/core";
 import { fabric } from "fabric";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import type { FabricJSON, Page } from "../../state/builderStore";
 
-function createBOMText(rows) {
+function createBOMText(rows: Array<{ sku: string; name: string; qty: number; price: number }>) {
   const lines = ["BILL OF MATERIALS", "-----------------"];
   rows.forEach((r, i) => lines.push(`${i + 1}. ${r.sku} | ${r.name} | Qty: ${r.qty} | $${r.price}`));
   return lines.join("\n");
 }
 
-function isTextObject(obj) {
+function isTextObject(obj: fabric.Object | null | undefined) {
   return obj && ["i-text", "textbox", "text"].includes(obj.type);
 }
 
-export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChange, onReady }, ref) {
-  const hostRef = useRef(null);
-  const canvasRef = useRef(null);
-  const clipboardRef = useRef(null);
-  const historyRef = useRef([]);
+export type FabricCanvasHandle = {
+  addText: () => void;
+  setTextStyle: (style: { fontWeight?: string; fontStyle?: string; fill?: string; fontSize?: number }) => void;
+  setTextAlign: (align: "left" | "center" | "right" | "justify") => void;
+  addPlaceholder: (key: string) => void;
+  addBOMTable: (rows: Array<{ sku: string; name: string; qty: number; price: number }>) => void;
+  addImage: (dataUrl: string) => void;
+  copy: () => void;
+  paste: () => void;
+  duplicate: () => void;
+  undo: () => void;
+  redo: () => void;
+  deleteActive: () => void;
+  getPageImage: () => Promise<string>;
+};
+
+type FabricCanvasProps = {
+  page?: Page;
+  onPageChange: (json: FabricJSON) => void;
+  onReady?: (ready: boolean) => void;
+};
+
+export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(function FabricCanvas(
+  { page, onPageChange, onReady },
+  ref
+) {
+  const hostRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<fabric.Canvas | null>(null);
+  const clipboardRef = useRef<fabric.Object | null>(null);
+  const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef(-1);
   const hasPageChangesRef = useRef(false);
   const isRestoringRef = useRef(false);
@@ -38,7 +64,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     hasPageChangesRef.current = false;
   };
 
-  const pushHistory = ({ markChange = true } = {}) => {
+  const pushHistory = ({ markChange = true }: { markChange?: boolean } = {}) => {
     const canvas = canvasRef.current;
     if (!canvas || isRestoringRef.current) return;
     const json = JSON.stringify(canvas.toJSON(["data"]));
@@ -114,7 +140,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
       seedHistoryFromCanvas();
     }
 
-    const handleDeleteKey = (event) => {
+    const handleDeleteKey = (event: KeyboardEvent) => {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       const target = event.target;
       const targetTag = target?.tagName?.toLowerCase();
@@ -128,7 +154,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
       if (removeActiveObjects()) event.preventDefault();
     };
 
-    const handleClipboardShortcuts = (event) => {
+    const handleClipboardShortcuts = (event: KeyboardEvent) => {
       const isMac = navigator.platform.toLowerCase().includes("mac");
       const modKey = isMac ? event.metaKey : event.ctrlKey;
       if (!modKey) return;
@@ -223,6 +249,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
   useImperativeHandle(ref, () => ({
     addText() {
       const canvas = canvasRef.current;
+      if (!canvas) return;
       const text = new fabric.IText("Editable text", {
         left: 64,
         top: 64,
@@ -232,6 +259,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     },
     setTextStyle(style) {
       const canvas = canvasRef.current;
+      if (!canvas) return;
       const active = canvas.getActiveObject();
       let changedCanvas = false;
 
@@ -268,6 +296,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     },
     setTextAlign(align) {
       const canvas = canvasRef.current;
+      if (!canvas) return;
       const active = canvas.getActiveObject();
       if (!isTextObject(active)) return;
       active.set({ textAlign: align });
@@ -276,6 +305,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     },
     addPlaceholder(key) {
       const canvas = canvasRef.current;
+      if (!canvas) return;
       const item = new fabric.IText(key, {
         left: 64,
         top: 120,
@@ -288,6 +318,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     },
     addBOMTable(rows) {
       const canvas = canvasRef.current;
+      if (!canvas) return;
       const text = new fabric.Textbox(createBOMText(rows), {
         left: 64,
         top: 260,
@@ -301,6 +332,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     },
     addImage(dataUrl) {
       fabric.Image.fromURL(dataUrl, (img) => {
+        if (!img) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
         img.scaleToWidth(300);
@@ -311,7 +343,9 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
       }, { crossOrigin: "anonymous" });
     },
     copy() {
-      const active = canvasRef.current.getActiveObject();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const active = canvas.getActiveObject();
       if (!active) return;
       active.clone((cloned) => {
         clipboardRef.current = cloned;
@@ -341,6 +375,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     },
     undo() {
       const canvas = canvasRef.current;
+      if (!canvas) return;
       if (!hasPageChangesRef.current) return;
       if (historyIndexRef.current <= 0) return;
       historyIndexRef.current -= 1;
@@ -354,6 +389,7 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
     },
     redo() {
       const canvas = canvasRef.current;
+      if (!canvas) return;
       if (historyIndexRef.current >= historyRef.current.length - 1) return;
       historyIndexRef.current += 1;
       isRestoringRef.current = true;
@@ -368,7 +404,9 @@ export const FabricCanvas = forwardRef(function FabricCanvas({ page, onPageChang
       removeActiveObjects();
     },
     async getPageImage() {
-      return canvasRef.current.toDataURL({ multiplier: 2, format: "png" });
+      const canvas = canvasRef.current;
+      if (!canvas) return "";
+      return canvas.toDataURL({ multiplier: 2, format: "png" });
     }
   }));
 

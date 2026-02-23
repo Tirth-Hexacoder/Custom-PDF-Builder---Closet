@@ -2,9 +2,9 @@ import { jsPDF } from "jspdf";
 import { useSnapshot } from "valtio";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
-import { builderStore } from "../../state/builderStore";
+import { builderStore, type Page } from "../../state/builderStore";
 
-async function renderPage(page) {
+async function renderPage(page: Page): Promise<string | null> {
   if (!page.fabricJSON) return null;
   const el = document.createElement("canvas");
   const canvas = new fabric.StaticCanvas(el, { width: A4_PX.width, height: A4_PX.height });
@@ -76,7 +76,7 @@ export function ExportTab() {
           {Object.entries(snap.project).map(([key, value]) => (
             <div key={key} style={{ display: 'flex', marginBottom: '8px' }}>
               <span style={{ color: 'var(--muted)', width: '140px' }}>{key}:</span>
-              <span style={{ fontWeight: 600 }}>{value}</span>
+              <span style={{ fontWeight: 600 }}>{String(value ?? "")}</span>
             </div>
           ))}
         </div>

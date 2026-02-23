@@ -1,22 +1,20 @@
 import { useState } from "react";
-import { useSnapshot } from "valtio";
 import { Toaster } from "react-hot-toast";
-import { builderStore } from "./state/builderStore";
 import { SceneTab } from "./components/scene/SceneTab";
 import { EditorTab } from "./components/editor/EditorTab";
 import { ExportTab } from "./components/editor/ExportTab";
 import { useAutosave } from "./utils/useAutosave";
-import { addPage } from "./state/builderStore";
 
-const tabs = [
+type TabId = "scene" | "editor" | "download";
+
+const tabs: Array<{ id: TabId; label: string }> = [
   { id: "scene", label: "Scene" },
   { id: "editor", label: "Editor" },
   { id: "download", label: "Download" }
 ];
 
 export default function App() {
-  const snap = useSnapshot(builderStore);
-  const [activeTab, setActiveTab] = useState("scene"); // Start with scene as per new flow
+  const [activeTab, setActiveTab] = useState<TabId>("scene"); // Start with scene as per new flow
 
   useAutosave();
 
@@ -81,7 +79,7 @@ export default function App() {
 
         <main className={`content ${activeTab === "scene" || activeTab === "editor" ? "full-width" : ""}`}>
           {activeTab === "scene" && <SceneTab />}
-          {activeTab === "editor" && <EditorTab onOpenScene={() => setActiveTab("scene")} onOpenDownload={() => setActiveTab("download")} />}
+          {activeTab === "editor" && <EditorTab />}
           {activeTab === "download" && <ExportTab />}
         </main>
       </div>

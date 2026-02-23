@@ -2,10 +2,11 @@
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useEffect, useRef } from "react";
-import { useSnapshot } from "valtio";
-import { addCapture, builderStore } from "../../state/builderStore";
+import type { MutableRefObject } from "react";
+import type { WebGLRenderer } from "three";
+import { addCapture } from "../../state/builderStore";
 
-function CaptureBridge({ glRef }) {
+function CaptureBridge({ glRef }: { glRef: MutableRefObject<WebGLRenderer | null> }) {
   const { gl } = useThree();
   useEffect(() => {
     glRef.current = gl;
@@ -14,7 +15,7 @@ function CaptureBridge({ glRef }) {
 }
 
 export function SceneTab() {
-  const glRef = useRef(null);
+  const glRef = useRef<WebGLRenderer | null>(null);
 
   const handleCapture = () => {
     const gl = glRef.current;

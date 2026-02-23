@@ -1,18 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import {
   addPage,
   builderStore,
   deleteActivePage,
-  setPageFabricJSON
+  setPageFabricJSON,
+  type PendingCapture
 } from "../../state/builderStore";
-import { FabricCanvas } from "./FabricCanvas";
+import { FabricCanvas, type FabricCanvasHandle } from "./FabricCanvas";
 
-export function EditorTab({ onOpenScene, onOpenDownload }) {
+export function EditorTab() {
   const snap = useSnapshot(builderStore);
-  const canvasRef = useRef(null);
-  const processedCaptureIdsRef = useRef(new Set());
-  const pendingCaptureBufferRef = useRef([]);
+  const canvasRef = useRef<FabricCanvasHandle | null>(null);
+  const processedCaptureIdsRef = useRef<Set<string>>(new Set());
+  const pendingCaptureBufferRef = useRef<PendingCapture[]>([]);
   const [canvasReady, setCanvasReady] = useState(false);
   const [fontSize, setFontSize] = useState(24);
   const [fontColor, setFontColor] = useState("#1f2937");
@@ -36,7 +37,7 @@ export function EditorTab({ onOpenScene, onOpenDownload }) {
       if (!item?.dataUrl) return;
       if (processedCaptureIdsRef.current.has(item.id)) return;
       processedCaptureIdsRef.current.add(item.id);
-      canvasRef.current.addImage(item.dataUrl);
+      canvasRef.current?.addImage(item.dataUrl);
     });
   }, [canvasReady, snap.pendingCaptures.length]);
 
@@ -51,7 +52,7 @@ export function EditorTab({ onOpenScene, onOpenDownload }) {
       if (!item?.dataUrl) return;
       if (processedCaptureIdsRef.current.has(item.id)) return;
       processedCaptureIdsRef.current.add(item.id);
-      canvasRef.current.addImage(item.dataUrl);
+      canvasRef.current?.addImage(item.dataUrl);
     });
   }, [canvasReady, snap.activePageId]);
 
