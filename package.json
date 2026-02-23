@@ -1,0 +1,14 @@
+{
+  "name": "custom-pdf-builder",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace @closet/web run dev",
+    "dev:web": "npm --workspace @closet/web run dev",
+    "build": "npm --workspace @closet/web run build"
+  }
+}
