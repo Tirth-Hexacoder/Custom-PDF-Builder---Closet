@@ -256,6 +256,8 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
         ...defaultTextStyleRef.current
       });
       canvas.add(text).setActiveObject(text);
+      canvas.requestRenderAll();
+      pushHistory();
     },
     setTextStyle(style) {
       const canvas = canvasRef.current;
@@ -289,9 +291,13 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
         active.getObjects().forEach((obj) => applyStyle(obj));
       } else {
         applyStyle(active);
+        if (active && active.type === "i-text" && active.isEditing && style.fill) {
+          active.setSelectionStyles({ fill: style.fill });
+        }
       }
 
       canvas.requestRenderAll();
+      if (active) active.setCoords();
       if (changedCanvas) pushHistory();
     },
     setTextAlign(align) {
