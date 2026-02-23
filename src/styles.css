@@ -294,6 +294,13 @@ button {
   gap: 8px;
 }
 
+.toolbar-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
 .toolbar-divider {
   width: 1px;
   height: 24px;
@@ -454,6 +461,12 @@ button {
   font-size: 0.9rem;
 }
 
+.tool-btn.icon-only {
+  width: 38px;
+  padding: 0;
+  justify-content: center;
+}
+
 .tool-btn:hover {
   background: #f1f5f9;
 }
@@ -471,6 +484,54 @@ button {
 
 .tool-btn.primary:hover {
   background: var(--primary-accent);
+}
+
+.font-size-group {
+  gap: 10px;
+}
+
+.font-size-control {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.font-size-input {
+  width: 56px;
+  height: 34px;
+  border: none;
+  text-align: center;
+  font-weight: 700;
+  color: var(--secondary);
+  background: transparent;
+  outline: none;
+}
+
+.font-size-input::-webkit-outer-spin-button,
+.font-size-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.font-size-btn {
+  width: 32px;
+  height: 34px;
+  border: none;
+  background: #f8fafc;
+  color: var(--secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.font-size-btn:hover {
+  background: #e2e8f0;
 }
 
 .preview-header {

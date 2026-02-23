@@ -15,8 +15,9 @@ function isTextObject(obj: fabric.Object | null | undefined) {
 
 export type FabricCanvasHandle = {
   addText: () => void;
-  setTextStyle: (style: { fontWeight?: string; fontStyle?: string; fill?: string; fontSize?: number }) => void;
+  setTextStyle: (style: { fontWeight?: string; fontStyle?: string; underline?: boolean; fill?: string; fontSize?: number }) => void;
   setTextAlign: (align: "left" | "center" | "right" | "justify") => void;
+  alignObjects: (align: "left" | "center" | "right") => void;
   addPlaceholder: (key: string) => void;
   addBOMTable: (rows: Array<{ sku: string; name: string; qty: number; price: number }>) => void;
   addImage: (dataUrl: string) => void;
@@ -52,7 +53,8 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
     fontSize: 24,
     fontFamily: "Georgia",
     fontWeight: "normal",
-    fontStyle: "normal"
+    fontStyle: "normal",
+    underline: false
   });
 
   const seedHistoryFromCanvas = () => {
@@ -273,6 +275,9 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
       if (style.fontStyle) {
         defaultTextStyleRef.current.fontStyle = defaultTextStyleRef.current.fontStyle === "italic" ? "normal" : "italic";
       }
+      if (style.underline) {
+        defaultTextStyleRef.current.underline = !defaultTextStyleRef.current.underline;
+      }
 
       const applyStyle = (obj) => {
         if (!isTextObject(obj)) return;
@@ -282,6 +287,9 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
         }
         if (style.fontStyle) {
           obj.set({ fontStyle: obj.fontStyle === "italic" ? "normal" : "italic" });
+        }
+        if (style.underline) {
+          obj.set({ underline: !obj.underline });
         }
         if (style.fill) obj.set({ fill: style.fill });
         if (style.fontSize) obj.set({ fontSize: Number(style.fontSize) || 20 });
@@ -306,6 +314,30 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
       const active = canvas.getActiveObject();
       if (!isTextObject(active)) return;
       active.set({ textAlign: align });
+      canvas.requestRenderAll();
+      pushHistory();
+    },
+    alignObjects(align) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const margin = 64;
+      const pageWidth = canvas.getWidth();
+      const selected = canvas.getActiveObjects();
+      const targets = selected.length > 0 ? selected : canvas.getObjects();
+
+      targets.forEach((obj) => {
+        const width = obj.getScaledWidth();
+        let left = obj.left ?? 0;
+        if (align === "left") left = margin;
+        if (align === "center") left = (pageWidth - width) / 2;
+        if (align === "right") left = pageWidth - width - margin;
+        obj.set({ left });
+        if (isTextObject(obj)) {
+          obj.set({ textAlign: align });
+        }
+        obj.setCoords();
+      });
+
       canvas.requestRenderAll();
       pushHistory();
     },
