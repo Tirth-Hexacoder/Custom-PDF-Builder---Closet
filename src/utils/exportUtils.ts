@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
 import type { ExportOptions, Page, RenderImageOptions } from "../types";
-import { applyPageDecorations, HEADER_ID } from "./pageDecorUtils";
+import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
 
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
@@ -142,6 +142,38 @@ function getTextAngle(obj: fabric.Object) {
   return obj.angle || 0;
 }
 
+async function buildPdfCoverImage(logoUrl: string): Promise<string> {
+  const el = document.createElement("canvas");
+  const canvas = new fabric.StaticCanvas(el, {
+    width: A4_PX.width,
+    height: A4_PX.height,
+    backgroundColor: "#ffffff"
+  });
+
+  await new Promise<void>((resolve) => {
+    fabric.Image.fromURL(
+      logoUrl,
+      (img) => {
+        if (img) {
+          img.scaleToWidth(380);
+          img.set({
+            left: (canvas.getWidth() - img.getScaledWidth()) / 2,
+            top: (canvas.getHeight() - img.getScaledHeight()) / 2
+          });
+          canvas.add(img);
+        }
+        resolve();
+      },
+      { crossOrigin: "anonymous" }
+    );
+  });
+
+  canvas.renderAll();
+  const data = canvas.toDataURL({ format: "jpeg", quality: 0.9, multiplier: 1 });
+  canvas.dispose();
+  return data;
+}
+
 function buildHeaderParts(options: RenderImageOptions) {
   const separator = " - ";
   const headerText = options.headerText || "Modular Closets Renderings";
@@ -200,6 +232,11 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
   let pageCount = 0;
   const scaleX = PDF_PAGE_WIDTH / A4_PX.width;
   const scaleY = PDF_PAGE_HEIGHT / A4_PX.height;
+
+  const coverLogoUrl = options.footerLogoUrl || DEFAULT_FOOTER_LOGO_URL;
+  const coverImage = await buildPdfCoverImage(coverLogoUrl);
+  doc.addImage(coverImage, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
+  pageCount += 1;
 
   for (let i = 0; i < pages.length; i += 1) {
     const pageOptions: RenderImageOptions = {
