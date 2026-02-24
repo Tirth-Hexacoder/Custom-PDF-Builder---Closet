@@ -1,16 +1,16 @@
-import { useSnapshot } from "valtio";
-import { builderStore } from "../../state/builderStore";
+import { observer } from "mobx-react-lite";
+import { useStore } from "../../state/Root";
 import { exportPagesAsImages, exportPagesAsPdf } from "../../utils/exportUtils";
 
-export function ExportTab() {
-  const snap = useSnapshot(builderStore);
+export const ExportTab = observer(function ExportTab() {
+  const store = useStore();
 
   const exportPDF = async () => {
-    await exportPagesAsPdf(snap.pages);
+    await exportPagesAsPdf(store.pages);
   };
 
   const exportImages = async () => {
-    await exportPagesAsImages(snap.pages);
+    await exportPagesAsImages(store.pages);
   };
 
   return (
@@ -41,7 +41,14 @@ export function ExportTab() {
           color: 'var(--primary)',
           marginTop: 12
         }}>
-          {Object.entries(snap.project).map(([key, value]) => (
+          {Object.entries({
+            projectId: store.projectId,
+            projectName: store.projectName,
+            customerName: store.customerName,
+            designerEmail: store.designerEmail,
+            date: store.date,
+            mobileNo: store.mobileNo
+          }).map(([key, value]) => (
             <div key={key} style={{ display: 'flex', marginBottom: '8px' }}>
               <span style={{ color: 'var(--muted)', width: '140px' }}>{key}:</span>
               <span style={{ fontWeight: 600 }}>{String(value ?? "")}</span>
@@ -51,4 +58,4 @@ export function ExportTab() {
       </div>
     </section>
   );
-}
+});

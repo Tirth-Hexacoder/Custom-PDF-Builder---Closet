@@ -149,6 +149,7 @@ button {
   flex-direction: column;
 }
 
+
 .scene-layout {
   position: absolute;
   inset: 0;
@@ -551,6 +552,7 @@ button {
   justify-content: center;
   pointer-events: none;
 }
+
 
 .toolbar-nav-center {
   pointer-events: auto;

@@ -1,0 +1,19 @@
+{
+  "users": [
+    {
+      "projectId": "project-001",
+      "projectName": "Modular Closets",
+      "customerName": "Ava Mitchell",
+      "designerEmail": "designer@modularclosets.com",
+      "date": "2026-02-24",
+      "mobileNo": "+1-555-0100",
+      "images": [
+        {
+          "id": "img-001",
+          "projectId": "project-001",
+          "url": ""
+        }
+      ]
+    }
+  ]
+}

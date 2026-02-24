@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import type { FabricJSON, Page } from "../../state/builderStore";
+import type { FabricJSON, Page } from "../../state/Store";
 import { PageCanvasController, type FabricCanvasHandle } from "../../utils/pageUtils";
 
 export type { FabricCanvasHandle } from "../../utils/pageUtils";
@@ -8,10 +8,14 @@ export type FabricCanvasProps = {
   page?: Page;
   onPageChange: (json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
+  headerText?: string;
+  headerProjectName?: string;
+  headerCustomerName?: string;
+  footerLogoUrl?: string;
 };
 
 export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(function FabricCanvas(
-  { page, onPageChange, onReady },
+  { page, onPageChange, onReady, headerText, headerProjectName, headerCustomerName, footerLogoUrl },
   ref
 ) {
   const hostRef = useRef<HTMLCanvasElement | null>(null);
@@ -23,7 +27,11 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
       host: hostRef.current,
       page,
       onPageChange,
-      onReady
+      onReady,
+      headerText,
+      headerProjectName,
+      headerCustomerName,
+      footerLogoUrl
     });
     return () => {
       controllerRef.current?.dispose();
@@ -39,6 +47,15 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
   useEffect(() => {
     controllerRef.current?.setCallbacks(onPageChange, onReady);
   }, [onPageChange, onReady]);
+
+  useEffect(() => {
+    controllerRef.current?.setHeaderFooter({
+      headerText,
+      headerProjectName,
+      headerCustomerName,
+      footerLogoUrl
+    });
+  }, [headerText, headerProjectName, headerCustomerName, footerLogoUrl]);
 
   useImperativeHandle(ref, () => controllerRef.current?.getHandle() ?? ({} as FabricCanvasHandle));
 

@@ -1,6 +1,6 @@
 import { A4_PX } from "@closet/core";
 import { fabric } from "fabric";
-import type { FabricJSON, Page } from "../state/builderStore";
+import type { FabricJSON, Page } from "../state/Store";
 
 export type FabricCanvasHandle = {
   addText: () => void;
@@ -24,6 +24,10 @@ type PageCanvasControllerOptions = {
   page?: Page;
   onPageChange: (json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
+  headerText?: string;
+  headerProjectName?: string;
+  headerCustomerName?: string;
+  footerLogoUrl?: string;
 };
 
 function createBOMText(rows: Array<{ sku: string; name: string; qty: number; price: number }>) {
@@ -102,10 +106,18 @@ export class PageCanvasController {
     angle: 0,
     point: null
   };
+  private headerText: string;
+  private headerProjectName: string;
+  private headerCustomerName: string;
+  private footerLogoUrl: string;
 
-  constructor({ host, page, onPageChange, onReady }: PageCanvasControllerOptions) {
+  constructor({ host, page, onPageChange, onReady, headerText, headerProjectName, headerCustomerName, footerLogoUrl }: PageCanvasControllerOptions) {
     this.onPageChange = onPageChange;
     this.onReady = onReady;
+    this.headerText = headerText ?? "Modular Closets Renderings";
+    this.headerProjectName = headerProjectName ?? "";
+    this.headerCustomerName = headerCustomerName ?? "";
+    this.footerLogoUrl = footerLogoUrl ?? "https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg";
     this.handleDeleteKey = (event: KeyboardEvent) => this.onDeleteKey(event);
     this.handleClipboardShortcuts = (event: KeyboardEvent) => this.onClipboardShortcuts(event);
     this.handleObjectMoving = (event: fabric.IEvent) => this.onObjectMoving(event);
@@ -119,6 +131,25 @@ export class PageCanvasController {
   setCallbacks(onPageChange: (json: FabricJSON) => void, onReady?: (ready: boolean) => void) {
     this.onPageChange = onPageChange;
     this.onReady = onReady;
+  }
+
+  setHeaderFooter({
+    headerText,
+    headerProjectName,
+    headerCustomerName,
+    footerLogoUrl
+  }: {
+    headerText?: string;
+    headerProjectName?: string;
+    headerCustomerName?: string;
+    footerLogoUrl?: string;
+  }) {
+    if (headerText) this.headerText = headerText;
+    if (typeof headerProjectName === "string") this.headerProjectName = headerProjectName;
+    if (typeof headerCustomerName === "string") this.headerCustomerName = headerCustomerName;
+    if (footerLogoUrl) this.footerLogoUrl = footerLogoUrl;
+    this.ensureHeaderFooter();
+    this.canvas?.requestRenderAll();
   }
 
   dispose() {
@@ -138,11 +169,13 @@ export class PageCanvasController {
     if (page.fabricJSON) {
       this.canvas.loadFromJSON(page.fabricJSON, () => {
         this.isRestoring = false;
+        this.ensureHeaderFooter();
         this.canvas?.renderAll();
         this.seedHistoryFromCanvas();
       });
     } else {
       this.isRestoring = false;
+      this.ensureHeaderFooter();
       this.canvas.renderAll();
       this.seedHistoryFromCanvas();
     }
@@ -255,10 +288,12 @@ export class PageCanvasController {
       this.isRestoring = true;
       canvas.loadFromJSON(page.fabricJSON, () => {
         this.isRestoring = false;
+        this.ensureHeaderFooter();
         canvas.renderAll();
         this.seedHistoryFromCanvas();
       });
     } else {
+      this.ensureHeaderFooter();
       this.seedHistoryFromCanvas();
     }
 
@@ -304,6 +339,120 @@ export class PageCanvasController {
     this.hasPageChanges = false;
   };
 
+  private ensureHeaderFooter() {
+    if (!this.canvas) return;
+    const headerId = "fixed-header";
+    const footerId = "fixed-footer";
+    const existingHeader = this.canvas.getObjects().find((obj) => obj.data?.id === headerId);
+    const existingFooter = this.canvas.getObjects().find((obj) => obj.data?.id === footerId);
+
+    if (existingHeader) {
+      this.canvas.remove(existingHeader);
+    }
+
+    const headerGroup = this.createHeaderGroup();
+    if (headerGroup) {
+      headerGroup.set({ data: { id: headerId } });
+      this.canvas.add(headerGroup);
+    }
+
+    if (!existingFooter) {
+      const footerIdValue = footerId;
+      fabric.Image.fromURL(
+        this.footerLogoUrl,
+        (img) => {
+          if (!img || !this.canvas) return;
+          const targetWidth = 120;
+          img.scaleToWidth(targetWidth);
+          img.set({
+            left: (this.canvas.getWidth() - img.getScaledWidth()) / 2,
+            top: this.canvas.getHeight() - img.getScaledHeight() - 20,
+            selectable: false,
+            evented: false,
+            hasControls: false,
+            lockMovementX: true,
+            lockMovementY: true,
+            lockScalingX: true,
+            lockScalingY: true,
+            lockRotation: true,
+            hoverCursor: "default"
+          });
+          img.set({ data: { id: footerIdValue } });
+          this.canvas.add(img);
+          this.canvas.requestRenderAll();
+        },
+        { crossOrigin: "anonymous" }
+      );
+    } else if (existingFooter) {
+      existingFooter.set({
+        selectable: false,
+        evented: false,
+        hasControls: false,
+        lockMovementX: true,
+        lockMovementY: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        lockRotation: true,
+        hoverCursor: "default"
+      });
+    }
+  }
+
+  private createHeaderGroup() {
+    if (!this.canvas) return null;
+    const fontFamily = "Inter";
+    const fontSize = 16;
+    const separator = " - ";
+    const parts = [
+      { text: this.headerProjectName || "", fill: "#ea580c", fontWeight: "700" },
+      { text: separator, fill: "#64748b", fontWeight: "600" },
+      { text: this.headerText || "Modular Closets Renderings", fill: "#334155", fontWeight: "600" },
+      { text: separator, fill: "#64748b", fontWeight: "600" },
+      { text: this.headerCustomerName || "", fill: "#64748b", fontWeight: "600" }
+    ].filter((item) => item.text !== "");
+
+    if (parts.length === 0) return null;
+
+    let cursorX = 0;
+    const textObjects = parts.map((part) => {
+      const textObj = new fabric.Text(part.text, {
+        left: cursorX,
+        top: 0,
+        originX: "left",
+        originY: "top",
+        fontFamily,
+        fontSize,
+        fill: part.fill,
+        fontWeight: part.fontWeight,
+        selectable: false,
+        evented: false,
+        hasControls: false
+      });
+      cursorX += textObj.getScaledWidth();
+      return textObj;
+    });
+
+    const group = new fabric.Group(textObjects, {
+      left: 0,
+      top: 18,
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      lockMovementX: true,
+      lockMovementY: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockRotation: true,
+      hoverCursor: "default"
+    });
+
+    const canvasWidth = this.canvas.getWidth();
+    const groupWidth = group.getScaledWidth();
+    group.set({ left: (canvasWidth - groupWidth) / 2 });
+    group.setCoords();
+    return group;
+  }
+
   private pushHistory = ({ markChange = true }: { markChange?: boolean } = {}) => {
     if (!this.canvas || this.isRestoring) return;
     const json = JSON.stringify(this.canvas.toJSON(["data"]));
@@ -336,7 +485,9 @@ export class PageCanvasController {
     let alignX: number | null = null;
     let alignY: number | null = null;
 
-    const otherObjects = this.canvas.getObjects().filter((obj) => obj !== target);
+    const otherObjects = this.canvas
+      .getObjects()
+      .filter((obj) => obj !== target && obj.data?.id !== "fixed-header" && obj.data?.id !== "fixed-footer");
     const bounds = target.getBoundingRect(true, true);
     const targetLeft = bounds.left;
     const targetRight = bounds.left + bounds.width;

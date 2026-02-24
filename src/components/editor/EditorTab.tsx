@@ -1,11 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { useSnapshot } from "valtio";
-import { builderStore, type PendingCapture } from "../../state/builderStore";
-import { addPage, deleteActivePage, setPageFabricJSON } from "../../utils/editorUtils";
+import { observer } from "mobx-react-lite";
+import type { PendingCapture } from "../../state/Store";
+import { useStore } from "../../state/Root";
 import { FabricCanvas, type FabricCanvasHandle } from "./FabricCanvas";
 
-export function EditorTab() {
-  const snap = useSnapshot(builderStore);
+export const EditorTab = observer(function EditorTab() {
+  const store = useStore();
   const canvasRef = useRef<FabricCanvasHandle | null>(null);
   const processedCaptureIdsRef = useRef<Set<string>>(new Set());
   const pendingCaptureBufferRef = useRef<PendingCapture[]>([]);
@@ -14,33 +14,33 @@ export function EditorTab() {
   const [fontColor, setFontColor] = useState("#1f2937");
   const [textAlign, setTextAlign] = useState<"left" | "center" | "right">("left");
 
-  const activePage = snap.pages.find((p) => p.id === snap.activePageId) || snap.pages[0];
+  const activePage = store.pages.find((p) => p.id === store.activePageId) || store.pages[0];
 
   useLayoutEffect(() => {
-    if (!canvasReady || !canvasRef.current || snap.pendingCaptures.length === 0) return;
-    const firstPageId = builderStore.pages[0]?.id;
+    if (!canvasReady || !canvasRef.current || store.pendingCaptures.length === 0) return;
+    const firstPageId = store.pages[0]?.id;
     if (!firstPageId) return;
-    if (builderStore.activePageId !== firstPageId) {
-      const queue = [...snap.pendingCaptures];
-      builderStore.pendingCaptures = [];
+    if (store.activePageId !== firstPageId) {
+      const queue = [...store.pendingCaptures];
+      store.pendingCaptures = [];
       pendingCaptureBufferRef.current.push(...queue);
-      builderStore.activePageId = firstPageId;
+      store.setActivePageId(firstPageId);
       return;
     }
-    const queue = [...snap.pendingCaptures];
-    builderStore.pendingCaptures = [];
+    const queue = [...store.pendingCaptures];
+    store.pendingCaptures = [];
     queue.forEach((item) => {
       if (!item?.dataUrl) return;
       if (processedCaptureIdsRef.current.has(item.id)) return;
       processedCaptureIdsRef.current.add(item.id);
       canvasRef.current?.addImage(item.dataUrl);
     });
-  }, [canvasReady, snap.pendingCaptures.length]);
+  }, [canvasReady, store.pendingCaptures.length]);
 
   useLayoutEffect(() => {
-    const firstPageId = builderStore.pages[0]?.id;
+    const firstPageId = store.pages[0]?.id;
     if (!canvasReady || !canvasRef.current || !firstPageId) return;
-    if (builderStore.activePageId !== firstPageId) return;
+    if (store.activePageId !== firstPageId) return;
     if (pendingCaptureBufferRef.current.length === 0) return;
     const queue = [...pendingCaptureBufferRef.current];
     pendingCaptureBufferRef.current = [];
@@ -50,7 +50,7 @@ export function EditorTab() {
       processedCaptureIdsRef.current.add(item.id);
       canvasRef.current?.addImage(item.dataUrl);
     });
-  }, [canvasReady, snap.activePageId]);
+  }, [canvasReady, store.activePageId]);
 
   return (
     <div className="editor-container">
@@ -192,11 +192,11 @@ export function EditorTab() {
         <aside className="page-previews">
           <div className="page-previews-list">
             <div className="preview-header">PAGES</div>
-            {snap.pages.map((p, idx) => (
+            {store.pages.map((p, idx) => (
               <div
                 key={p.id}
-                className={`preview-item ${p.id === snap.activePageId ? "active" : ""}`}
-                onClick={() => (builderStore.activePageId = p.id)}
+                className={`preview-item ${p.id === store.activePageId ? "active" : ""}`}
+                onClick={() => store.setActivePageId(p.id)}
               >
                 <div className="preview-img">
                   <i className="fa-solid fa-file-lines preview-file-icon"></i>
@@ -207,15 +207,15 @@ export function EditorTab() {
           </div>
 
           <div className="page-previews-actions">
-          <button className="add-page-btn" onClick={() => addPage(false)}>
+          <button className="add-page-btn" onClick={() => store.addPage(false)}>
             <i className="fa-solid fa-plus"></i>
             <span>New Page</span>
           </button>
           <button
             className="add-page-btn"
-            onClick={deleteActivePage}
-            disabled={snap.pages.length <= 1}
-            title={snap.pages.length <= 1 ? "At least one page is required" : "Delete current page"}
+            onClick={() => store.deleteActivePage()}
+            disabled={store.pages.length <= 1}
+            title={store.pages.length <= 1 ? "At least one page is required" : "Delete current page"}
           >
             <i className="fa-solid fa-trash"></i>
             <span>Delete Page</span>
@@ -230,11 +230,15 @@ export function EditorTab() {
               ref={canvasRef}
               page={activePage}
               onReady={setCanvasReady}
-              onPageChange={(json) => setPageFabricJSON(activePage?.id, json)}
+              onPageChange={(json) => store.setPageFabricJSON(activePage?.id, json)}
+              headerText="Modular Closets Renderings"
+              headerProjectName={store.projectName}
+              headerCustomerName={store.customerName}
+              footerLogoUrl="https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg"
             />
           </div>
         </div>
       </div>
     </div>
   );
-}
+});

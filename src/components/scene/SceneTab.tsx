@@ -4,7 +4,8 @@ import { OrbitControls } from "@react-three/drei";
 import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type { WebGLRenderer } from "three";
-import { addCapture } from "../../utils/editorUtils";
+import { useStore } from "../../state/Root";
+import toast from "react-hot-toast";
 
 function CaptureBridge({ glRef }: { glRef: MutableRefObject<WebGLRenderer | null> }) {
   const { gl } = useThree();
@@ -15,13 +16,15 @@ function CaptureBridge({ glRef }: { glRef: MutableRefObject<WebGLRenderer | null
 }
 
 export function SceneTab() {
+  const store = useStore();
   const glRef = useRef<WebGLRenderer | null>(null);
 
   const handleCapture = () => {
     const gl = glRef.current;
     if (!gl) return;
     const image = gl.domElement.toDataURL("image/png", 1);
-    addCapture(image);
+    store.addCapture(image);
+    toast.success("Scene captured!");
   };
 
   return (

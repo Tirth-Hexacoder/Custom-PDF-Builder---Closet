@@ -3,7 +3,6 @@ import { Toaster } from "react-hot-toast";
 import { SceneTab } from "./components/scene/SceneTab";
 import { EditorTab } from "./components/editor/EditorTab";
 import { ExportTab } from "./components/editor/ExportTab";
-import { useAutosave } from "./utils/useAutosave";
 
 type TabId = "scene" | "editor" | "download";
 
@@ -15,8 +14,6 @@ const tabs: Array<{ id: TabId; label: string }> = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("scene");
-
-  useAutosave();
 
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
   const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label || "Scene";
@@ -34,7 +31,6 @@ export default function App() {
   return (
     <div className="app-shell">
       <Toaster position="top-center" />
-
       <header className="topbar">
         <div className="brand">
           <img src="https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg" alt="Modular Closets" />
@@ -83,6 +79,7 @@ export default function App() {
           {activeTab === "download" && <ExportTab />}
         </main>
       </div>
+
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
-import type { Page } from "../state/builderStore";
+import type { Page } from "../state/Store";
 
 export async function renderPageToImage(page: Page): Promise<string | null> {
   if (!page.fabricJSON) return null;
