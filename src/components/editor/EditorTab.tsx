@@ -257,6 +257,7 @@ export const EditorTab = observer(function EditorTab() {
             />
           </div>
         </div>
+
       </div>
     </div>
   );

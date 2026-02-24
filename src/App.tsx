@@ -73,7 +73,9 @@ export default function App() {
         )}
 
         <main className={`content ${activeTab === "scene" || activeTab === "editor" ? "full-width" : ""}`}>
-          {activeTab === "scene" && <SceneTab />}
+          <div style={{ display: activeTab === "scene" ? "block" : "none", width: "100%", height: "100%" }}>
+            <SceneTab isActive={activeTab === "scene"} />
+          </div>
           {activeTab === "editor" && <EditorTab />}
           {activeTab === "download" && <ExportTab />}
         </main>

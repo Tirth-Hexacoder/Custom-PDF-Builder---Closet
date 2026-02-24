@@ -174,6 +174,7 @@ async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   return data;
 }
 
+
 function buildHeaderParts(options: RenderImageOptions) {
   const separator = " - ";
   const headerText = options.headerText || "Modular Closets Renderings";

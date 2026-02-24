@@ -67,6 +67,7 @@ export type PageDecorOptions = {
   headerCustomerName?: string;
   footerLogoUrl?: string;
   stampUrl?: string;
+  isActive?: () => boolean;
   pageNumber?: number;
   totalPages?: number;
   designerEmail?: string;
@@ -97,11 +98,27 @@ export type RenderImageOptions = {
   quality?: number;
 } & PageDecorOptions;
 
-export type ExportOptions = Omit<RenderImageOptions, "format" | "multiplier" | "quality">;
+export type ExportOptions = Omit<RenderImageOptions, "format" | "multiplier" | "quality"> & {
+  tableData?: TableData;
+};
 
 export type TabId = "scene" | "editor" | "download";
 
 export type AppTab = {
   id: TabId;
   label: string;
+};
+
+export type TableRow = {
+  part: string;
+  description: string;
+  unitPrice?: string;
+  qty?: string | number;
+  total?: string;
+  isBold?: boolean;
+};
+
+export type TableData = {
+  rows: TableRow[];
+  grandTotal?: string;
 };

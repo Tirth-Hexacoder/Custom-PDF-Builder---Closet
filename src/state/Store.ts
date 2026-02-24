@@ -1,7 +1,9 @@
 import { makeAutoObservable } from "mobx";
 import userData from "../data/userData.json";
 import imageList from "../data/imageList.json";
-import type { FabricJSON, Page, PendingCapture, ProjectImage, UserRecord } from "../types";
+import tableData from "../data/table.json";
+import type { FabricJSON, Page, PendingCapture, ProjectImage, TableData, UserRecord } from "../types";
+import { createBomPages } from "../utils/bomTableUtils";
 
 export class Store {
   projectId = "";
@@ -15,26 +17,26 @@ export class Store {
   pages: Page[] = [];
   activePageId: string | null = null;
   pendingCaptures: PendingCapture[] = [];
+  tableData: TableData = { rows: [], grandTotal: "" };
 
   constructor() {
     makeAutoObservable(this);
     this.loadUser();
+    this.setupTableData();
     this.setupDefaultPages();
     this.activePageId = this.pages[0].id;
   }
 
   setupDefaultPages() {
     const images = this.getDefaultImageUrls();
-    if (images.length === 0) {
-      this.pages = [{ id: crypto.randomUUID(), name: "Page 1", fabricJSON: null }];
-      return;
-    }
-    this.pages = images.map((url, index) => ({
+    const imagePages = images.map((url, index) => ({
       id: crypto.randomUUID(),
       name: `Page ${index + 1}`,
       fabricJSON: null,
       defaultImageUrl: url
     }));
+    const bomPages = createBomPages(this.tableData);
+    this.pages = [...imagePages, ...bomPages];
 
   }
 
@@ -52,6 +54,14 @@ export class Store {
     this.date = firstUser.date;
     this.mobileNo = firstUser.mobileNo;
     this.images = firstUser.images ?? [];
+  }
+
+  setupTableData() {
+    const source = tableData as TableData;
+    this.tableData = {
+      rows: (source.rows || []).map((row) => ({ ...row })),
+      grandTotal: source.grandTotal || ""
+    };
   }
 
   setActivePageId(id: string) {
@@ -87,5 +97,40 @@ export class Store {
     const idx = this.pages.findIndex((p) => p.id === this.activePageId);
     this.pages.splice(idx, 1);
     this.activePageId = this.pages[Math.max(0, idx - 1)].id;
+  }
+
+  updateTableCell(index: number, field: "part" | "description" | "unitPrice" | "qty" | "total", value: string) {
+    const row = this.tableData.rows[index];
+    if (!row) return;
+    if (field === "qty") {
+      row.qty = value;
+      return;
+    }
+    row[field] = value;
+  }
+
+  toggleTableRowBold(index: number) {
+    const row = this.tableData.rows[index];
+    if (!row) return;
+    row.isBold = !row.isBold;
+  }
+
+  addTableRow() {
+    this.tableData.rows.push({
+      part: "",
+      description: "",
+      unitPrice: "",
+      qty: "",
+      total: ""
+    });
+  }
+
+  removeTableRow(index: number) {
+    if (index < 0 || index >= this.tableData.rows.length) return;
+    this.tableData.rows.splice(index, 1);
+  }
+
+  setTableGrandTotal(value: string) {
+    this.tableData.grandTotal = value;
   }
 }

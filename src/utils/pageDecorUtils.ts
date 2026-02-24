@@ -15,6 +15,19 @@ export const DEFAULT_STAMP_URL = "/stamp.jpg";
 const LOCKED_DECORATION_IDS = new Set([HEADER_ID, FOOTER_ID, STAMP_ID, DATE_ID, PAGE_NUMBER_ID]);
 const ALL_DECORATION_IDS = new Set([HEADER_ID, FOOTER_ID, STAMP_ID, DATE_ID, PAGE_NUMBER_ID, CONTACT_INFO_ID]);
 
+function canUseCanvas(canvas: AnyCanvas, isActive?: () => boolean) {
+  if (isActive && !isActive()) return false;
+  const value = canvas as AnyCanvas & {
+    lowerCanvasEl?: HTMLCanvasElement | null;
+    contextContainer?: CanvasRenderingContext2D | null;
+    disposed?: boolean;
+  };
+  if (value.disposed) return false;
+  if (!value.lowerCanvasEl) return false;
+  if (!value.contextContainer) return false;
+  return true;
+}
+
 export function isLockedDecorationId(id?: string) {
   if (!id) return false;
   return LOCKED_DECORATION_IDS.has(id);
@@ -195,11 +208,19 @@ function addPageNumber(canvas: AnyCanvas, pageNumber?: number, totalPages?: numb
   canvas.add(pageText);
 }
 
-function addFooter(canvas: AnyCanvas, footerLogoUrl: string) {
+function addFooter(canvas: AnyCanvas, footerLogoUrl: string, isActive?: () => boolean) {
   return new Promise<void>((resolve) => {
+    if (!canUseCanvas(canvas, isActive)) {
+      resolve();
+      return;
+    }
     fabric.Image.fromURL(
       footerLogoUrl,
       (img) => {
+        if (!canUseCanvas(canvas, isActive)) {
+          resolve();
+          return;
+        }
         if (img) {
           img.scaleToWidth(180);
           img.set({
@@ -217,11 +238,19 @@ function addFooter(canvas: AnyCanvas, footerLogoUrl: string) {
   });
 }
 
-function addStamp(canvas: AnyCanvas, stampUrl: string) {
+function addStamp(canvas: AnyCanvas, stampUrl: string, isActive?: () => boolean) {
   return new Promise<void>((resolve) => {
+    if (!canUseCanvas(canvas, isActive)) {
+      resolve();
+      return;
+    }
     fabric.Image.fromURL(
       stampUrl,
       (img) => {
+        if (!canUseCanvas(canvas, isActive)) {
+          resolve();
+          return;
+        }
         if (img) {
           img.scaleToWidth(78);
           img.set({
@@ -240,6 +269,8 @@ function addStamp(canvas: AnyCanvas, stampUrl: string) {
 }
 
 export async function applyPageDecorations(canvas: AnyCanvas, options: PageDecorOptions = {}) {
+  const isActive = options.isActive;
+  if (!canUseCanvas(canvas, isActive)) return;
   const headerText = options.headerText || "Modular Closets Renderings";
   const headerProjectName = options.headerProjectName || "";
   const headerCustomerName = options.headerCustomerName || "";
@@ -251,6 +282,7 @@ export async function applyPageDecorations(canvas: AnyCanvas, options: PageDecor
   removeById(canvas, PAGE_NUMBER_ID);
   removeById(canvas, FOOTER_ID);
   removeById(canvas, STAMP_ID);
+  if (!canUseCanvas(canvas, isActive)) return;
 
   const headerGroup = createHeaderGroup(canvas, headerText, headerProjectName, headerCustomerName);
   if (headerGroup) canvas.add(headerGroup);
@@ -262,5 +294,5 @@ export async function applyPageDecorations(canvas: AnyCanvas, options: PageDecor
     options.designerMobile,
     options.addContactIfMissing !== false
   );
-  await Promise.all([addFooter(canvas, footerLogoUrl), addStamp(canvas, stampUrl)]);
+  await Promise.all([addFooter(canvas, footerLogoUrl, isActive), addStamp(canvas, stampUrl, isActive)]);
 }

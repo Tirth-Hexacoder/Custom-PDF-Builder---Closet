@@ -15,6 +15,11 @@ function isTextObject(obj: fabric.Object | null | undefined) {
   return obj && ["i-text", "textbox", "text"].includes(obj.type);
 }
 
+function isBomObject(obj: fabric.Object | null | undefined) {
+  const id = obj?.data?.id;
+  return typeof id === "string" && id.startsWith("bom-");
+}
+
 function getRotationGlyph() {
   if (typeof document === "undefined") return null;
   const el = document.createElement("i");
@@ -122,6 +127,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   let hasPageChanges = false;
   let isRestoring = false;
   let isApplyingDecorations = false;
+  let decorVersion = 0;
   let currentPageId: string | null = page?.id ?? null;
   let isDisposed = false;
 
@@ -149,7 +155,26 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     point: null as null | { x: number; y: number }
   };
 
+  function normalizeTextStylesForSerialization() {
+    const visit = (obj: fabric.Object) => {
+      if (obj.type === "group") {
+        const children = (obj as fabric.Group).getObjects() as fabric.Object[];
+        children.forEach((child) => visit(child));
+      }
+
+      if (obj.type === "text" || obj.type === "i-text" || obj.type === "textbox") {
+        const textObj = obj as fabric.Textbox & { styles?: Record<string, unknown> };
+        if (!textObj.styles || typeof textObj.styles !== "object") {
+          textObj.styles = {};
+        }
+      }
+    };
+
+    canvas.getObjects().forEach((obj) => visit(obj));
+  }
+
   function seedHistoryFromCanvas() {
+    normalizeTextStylesForSerialization();
     const json = JSON.stringify(canvas.toJSON(["data"]));
     history = [json];
     historyIndex = 0;
@@ -159,6 +184,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   function pushHistory() {
     if (isRestoring || isDisposed) return;
     if (!currentPageId) return;
+    normalizeTextStylesForSerialization();
     const json = JSON.stringify(canvas.toJSON(["data"]));
     const latest = history[historyIndex];
     if (latest === json) return;
@@ -172,17 +198,21 @@ export function createPageCanvas(options: CreateCanvasOptions) {
 
   function ensureHeaderFooter() {
     if (isDisposed) return;
+    decorVersion += 1;
+    const requestVersion = decorVersion;
     isApplyingDecorations = true;
     void applyPageDecorations(canvas, {
       headerText,
       headerProjectName,
       headerCustomerName,
       footerLogoUrl,
+      isActive: () => !isDisposed && requestVersion === decorVersion,
       pageNumber,
       totalPages,
       designerEmail,
       designerMobile
     }).finally(() => {
+      if (requestVersion !== decorVersion) return;
       isApplyingDecorations = false;
       if (!isDisposed) canvas.requestRenderAll();
     });
@@ -274,6 +304,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       clipboard = null;
       const activeObj = canvas.getActiveObject();
       if (isDecorationId(activeObj?.data?.id)) return;
+      if (isBomObject(activeObj)) return;
       if (activeObj) {
         activeObj.clone((cloned) => {
           clipboard = cloned;
@@ -285,6 +316,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       event.preventDefault();
       const activeObj = canvas.getActiveObject();
       if (isDecorationId(activeObj?.data?.id)) return;
+      if (isBomObject(activeObj)) return;
       if (activeObj) {
         activeObj.clone((cloned) => {
           clipboard = cloned;
@@ -321,6 +353,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       let removed = false;
       activeObjects.forEach((obj) => {
         if (isDecorationId(obj.data?.id)) return;
+        if (isBomObject(obj)) return;
         canvas.remove(obj);
         removed = true;
       });
@@ -331,7 +364,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       return;
     }
     const activeObject = canvas.getActiveObject();
-    if (activeObject && !isDecorationId(activeObject.data?.id)) {
+    if (activeObject && !isDecorationId(activeObject.data?.id) && !isBomObject(activeObject)) {
       canvas.discardActiveObject();
       canvas.remove(activeObject);
       canvas.requestRenderAll();
@@ -668,6 +701,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
 
       const applyStyle = (obj: fabric.Object | null | undefined) => {
         if (!isTextObject(obj)) return;
+        if (isBomObject(obj)) return;
         changedCanvas = true;
         if (style.fontWeight) {
           obj.set({ fontWeight: obj.fontWeight === "bold" ? "normal" : "bold" });
@@ -698,6 +732,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     setTextAlign(align) {
       const active = canvas.getActiveObject();
       if (!isTextObject(active)) return;
+      if (isBomObject(active)) return;
       active.set({ textAlign: align });
       canvas.requestRenderAll();
       pushHistory();
@@ -709,6 +744,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       const targets = selected.length > 0 ? selected : canvas.getObjects();
 
       targets.forEach((obj) => {
+        if (isBomObject(obj)) return;
         const width = obj.getScaledWidth();
         let left = obj.left ?? 0;
         if (align === "left") left = margin;
@@ -765,6 +801,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       const active = canvas.getActiveObject();
       if (!active) return;
       if (isDecorationId(active.data?.id)) return;
+      if (isBomObject(active)) return;
       active.clone((cloned) => {
         clipboard = cloned;
       });

@@ -15,7 +15,7 @@ function CaptureBridge({ glRef }: { glRef: MutableRefObject<WebGLRenderer | null
   return null;
 }
 
-export function SceneTab() {
+export function SceneTab({ isActive = true }: { isActive?: boolean }) {
   const store = useStore();
   const glRef = useRef<WebGLRenderer | null>(null);
 
@@ -32,6 +32,7 @@ export function SceneTab() {
       <Canvas
         gl={{ preserveDrawingBuffer: true }}
         camera={{ position: [3, 2.4, 3], fov: 50 }}
+        frameloop={isActive ? "always" : "never"}
         style={{ width: '100%', height: '100%' }}
       >
         <ambientLight intensity={0.8} />
