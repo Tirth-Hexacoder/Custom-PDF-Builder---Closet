@@ -36,7 +36,24 @@ function isTextObject(obj: fabric.Object | null | undefined) {
   return obj && ["i-text", "textbox", "text"].includes(obj.type);
 }
 
+type GuideState = {
+  active: boolean;
+  bounds: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    width: number;
+    height: number;
+    centerX: number;
+    centerY: number;
+  } | null;
+  showCenterX: boolean;
+  showCenterY: boolean;
+};
+
 export class PageCanvasController {
+  private static GUIDE_SNAP_THRESHOLD = 6;
   private canvas: fabric.Canvas | null = null;
   private clipboard: fabric.Object | null = null;
   private history: string[] = [];
@@ -56,12 +73,26 @@ export class PageCanvasController {
   };
   private handleDeleteKey: (event: KeyboardEvent) => void;
   private handleClipboardShortcuts: (event: KeyboardEvent) => void;
+  private guideState: GuideState = {
+    active: false,
+    bounds: null,
+    showCenterX: false,
+    showCenterY: false
+  };
+  private handleObjectMoving: (event: fabric.IEvent) => void;
+  private handleMouseUp: () => void;
+  private handleBeforeRender: () => void;
+  private handleAfterRender: () => void;
 
   constructor({ host, page, onPageChange, onReady }: PageCanvasControllerOptions) {
     this.onPageChange = onPageChange;
     this.onReady = onReady;
     this.handleDeleteKey = (event: KeyboardEvent) => this.onDeleteKey(event);
     this.handleClipboardShortcuts = (event: KeyboardEvent) => this.onClipboardShortcuts(event);
+    this.handleObjectMoving = (event: fabric.IEvent) => this.onObjectMoving(event);
+    this.handleMouseUp = () => this.clearGuides();
+    this.handleBeforeRender = () => this.clearGuideLayer();
+    this.handleAfterRender = () => this.renderGuides();
     this.initCanvas(host, page);
   }
 
@@ -143,6 +174,10 @@ export class PageCanvasController {
     canvas.on("object:added", this.pushHistory);
     canvas.on("object:modified", this.pushHistory);
     canvas.on("object:removed", this.pushHistory);
+    canvas.on("object:moving", this.handleObjectMoving);
+    canvas.on("before:render", this.handleBeforeRender);
+    canvas.on("after:render", this.handleAfterRender);
+    canvas.on("mouse:up", this.handleMouseUp);
     this.onReady?.(true);
 
     if (page?.fabricJSON) {
@@ -180,6 +215,159 @@ export class PageCanvasController {
     if (markChange) this.hasPageChanges = true;
     this.onPageChange(JSON.parse(json));
   };
+
+  private onObjectMoving(event: fabric.IEvent) {
+    if (!this.canvas) return;
+    const target = event.target as fabric.Object | undefined;
+    if (!target) return;
+
+    const pageWidth = this.canvas.getWidth();
+    const pageHeight = this.canvas.getHeight();
+    const center = target.getCenterPoint();
+    const pageCenterX = pageWidth / 2;
+    const pageCenterY = pageHeight / 2;
+
+    const snapThreshold = PageCanvasController.GUIDE_SNAP_THRESHOLD;
+    let snappedX = false;
+    let snappedY = false;
+
+    if (Math.abs(center.x - pageCenterX) <= snapThreshold) {
+      target.setPositionByOrigin(new fabric.Point(pageCenterX, center.y), "center", "center");
+      snappedX = true;
+    }
+    if (Math.abs(center.y - pageCenterY) <= snapThreshold) {
+      const newCenter = target.getCenterPoint();
+      target.setPositionByOrigin(new fabric.Point(newCenter.x, pageCenterY), "center", "center");
+      snappedY = true;
+    }
+
+    target.setCoords();
+
+    const bounds = target.getBoundingRect(true, true);
+    this.guideState = {
+      active: true,
+      bounds: {
+        left: bounds.left,
+        right: bounds.left + bounds.width,
+        top: bounds.top,
+        bottom: bounds.top + bounds.height,
+        width: bounds.width,
+        height: bounds.height,
+        centerX: bounds.left + bounds.width / 2,
+        centerY: bounds.top + bounds.height / 2
+      },
+      showCenterX: snappedX || Math.abs(center.x - pageCenterX) <= snapThreshold * 1.5,
+      showCenterY: snappedY || Math.abs(center.y - pageCenterY) <= snapThreshold * 1.5
+    };
+
+    this.canvas.requestRenderAll();
+  }
+
+  private clearGuides() {
+    if (!this.canvas) return;
+    if (!this.guideState.active) return;
+    this.guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
+    this.canvas.requestRenderAll();
+  }
+
+  private clearGuideLayer() {
+    if (!this.canvas) return;
+    const ctx = this.canvas.contextTop;
+    if (!ctx) return;
+    this.canvas.clearContext(ctx);
+  }
+
+  private renderGuides() {
+    if (!this.canvas) return;
+    const ctx = this.canvas.contextTop;
+    if (!ctx) return;
+    if (!this.guideState.active || !this.guideState.bounds) return;
+
+    const { bounds, showCenterX, showCenterY } = this.guideState;
+    const pageWidth = this.canvas.getWidth();
+    const pageHeight = this.canvas.getHeight();
+
+    const lineColor = "#2563eb";
+    const accentColor = "#0f172a";
+    const labelBg = "rgba(255, 255, 255, 0.9)";
+
+    const drawLabel = (text: string, x: number, y: number) => {
+      ctx.save();
+      ctx.font = "12px \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif";
+      ctx.fillStyle = labelBg;
+      const paddingX = 6;
+      const paddingY = 3;
+      const metrics = ctx.measureText(text);
+      const width = metrics.width + paddingX * 2;
+      const height = 16 + paddingY * 2;
+      ctx.fillRect(x - width / 2, y - height / 2, width, height);
+      ctx.fillStyle = accentColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, x, y);
+      ctx.restore();
+    };
+
+    const drawMeasureLine = (x1: number, y1: number, x2: number, y2: number, label: string) => {
+      ctx.save();
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const tickSize = 6;
+      if (y1 === y2) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1 - tickSize);
+        ctx.lineTo(x1, y1 + tickSize);
+        ctx.moveTo(x2, y2 - tickSize);
+        ctx.lineTo(x2, y2 + tickSize);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(x1 - tickSize, y1);
+        ctx.lineTo(x1 + tickSize, y1);
+        ctx.moveTo(x2 - tickSize, y2);
+        ctx.lineTo(x2 + tickSize, y2);
+        ctx.stroke();
+      }
+
+      drawLabel(label, (x1 + x2) / 2, (y1 + y2) / 2);
+      ctx.restore();
+    };
+
+    const leftDistance = Math.max(0, Math.round(bounds.left));
+    const rightDistance = Math.max(0, Math.round(pageWidth - bounds.right));
+    const topDistance = Math.max(0, Math.round(bounds.top));
+    const bottomDistance = Math.max(0, Math.round(pageHeight - bounds.bottom));
+
+    drawMeasureLine(0, bounds.centerY, bounds.left, bounds.centerY, `${leftDistance}px`);
+    drawMeasureLine(bounds.right, bounds.centerY, pageWidth, bounds.centerY, `${rightDistance}px`);
+    drawMeasureLine(bounds.centerX, 0, bounds.centerX, bounds.top, `${topDistance}px`);
+    drawMeasureLine(bounds.centerX, bounds.bottom, bounds.centerX, pageHeight, `${bottomDistance}px`);
+
+    ctx.save();
+    ctx.strokeStyle = lineColor;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 6]);
+    if (showCenterX) {
+      ctx.beginPath();
+      ctx.moveTo(pageWidth / 2, 0);
+      ctx.lineTo(pageWidth / 2, pageHeight);
+      ctx.stroke();
+    }
+    if (showCenterY) {
+      ctx.beginPath();
+      ctx.moveTo(0, pageHeight / 2);
+      ctx.lineTo(pageWidth, pageHeight / 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   private removeActiveObjects() {
     if (!this.canvas) return false;

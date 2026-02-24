@@ -1,6 +1,6 @@
 export const THEME = {
   primary: "#f97316",
-  primaryDark: "#c2410c",
+  primaryDark: "#f0571b",
   surface: "#fff7ed",
   border: "#fed7aa",
   text: "#1f2937"
