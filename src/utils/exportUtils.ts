@@ -2,7 +2,10 @@ import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
 import type { ExportOptions, Page, RenderImageOptions } from "../types";
-import { applyPageDecorations } from "./pageDecorUtils";
+import { applyPageDecorations, HEADER_ID } from "./pageDecorUtils";
+
+const PDF_PAGE_WIDTH = 595;
+const PDF_PAGE_HEIGHT = 842;
 
 function fitImageToPage(img: fabric.Image, canvas: fabric.StaticCanvas) {
   const margin = 40;
@@ -29,54 +32,161 @@ function toDataUrl(canvas: fabric.StaticCanvas, options: RenderImageOptions) {
   return canvas.toDataURL({ format, multiplier, quality });
 }
 
-export async function renderPageToImage(page: Page, options: RenderImageOptions = {}): Promise<string> {
+function createExportCanvas() {
   const el = document.createElement("canvas");
-  const canvas = new fabric.StaticCanvas(el, {
+  return new fabric.StaticCanvas(el, {
     width: A4_PX.width,
     height: A4_PX.height,
     backgroundColor: "#ffffff"
   });
+}
 
-  return new Promise((resolve) => {
-    if (page.fabricJSON) {
-      canvas.loadFromJSON(page.fabricJSON, () => {
-        void applyPageDecorations(canvas, options).then(() => {
-          canvas.renderAll();
-          const dataUrl = toDataUrl(canvas, options);
-          canvas.dispose();
-          resolve(dataUrl);
-        });
-      });
-      return;
-    }
+async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
+  const canvas = createExportCanvas();
 
-    if (page.defaultImageUrl) {
+  if (page.fabricJSON) {
+    await new Promise<void>((resolve) => {
+      canvas.loadFromJSON(page.fabricJSON, () => resolve());
+    });
+  } else if (page.defaultImageUrl) {
+    await new Promise<void>((resolve) => {
       fabric.Image.fromURL(
-        page.defaultImageUrl,
+        page.defaultImageUrl!,
         (img) => {
           if (img) {
             fitImageToPage(img, canvas);
             canvas.add(img);
           }
-          void applyPageDecorations(canvas, options).then(() => {
-            canvas.renderAll();
-            const dataUrl = toDataUrl(canvas, options);
-            canvas.dispose();
-            resolve(dataUrl);
-          });
+          resolve();
         },
         { crossOrigin: "anonymous" }
       );
-      return;
-    }
-
-    void applyPageDecorations(canvas, options).then(() => {
-      canvas.renderAll();
-      const dataUrl = toDataUrl(canvas, options);
-      canvas.dispose();
-      resolve(dataUrl);
     });
+  }
+
+  await applyPageDecorations(canvas, options);
+  canvas.renderAll();
+  return canvas;
+}
+
+function flattenObjects(objects: fabric.Object[]) {
+  const list: fabric.Object[] = [];
+  objects.forEach((obj) => {
+    list.push(obj);
+    if (obj.type === "group") {
+      const groupObjects = (obj as fabric.Group).getObjects() as fabric.Object[];
+      list.push(...flattenObjects(groupObjects));
+    }
   });
+  return list;
+}
+
+function isFabricTextObject(obj: fabric.Object) {
+  return obj.type === "text" || obj.type === "i-text" || obj.type === "textbox";
+}
+
+function mapFontFamily(fontFamily?: string) {
+  const value = (fontFamily || "").toLowerCase();
+  if (value.includes("courier") || value.includes("mono")) return "courier";
+  if (value.includes("times") || value.includes("georgia") || value.includes("serif")) return "times";
+  return "helvetica";
+}
+
+function mapFontStyle(fontWeight: unknown, fontStyle: unknown) {
+  const weightNumber = typeof fontWeight === "number" ? fontWeight : Number(fontWeight);
+  const isBold = fontWeight === "bold" || Number.isFinite(weightNumber) && weightNumber >= 600;
+  const isItalic = fontStyle === "italic";
+  if (isBold && isItalic) return "bolditalic";
+  if (isBold) return "bold";
+  if (isItalic) return "italic";
+  return "normal";
+}
+
+function parseColor(fill: unknown) {
+  if (typeof fill !== "string") return { r: 17, g: 24, b: 39 };
+  const value = fill.trim().toLowerCase();
+
+  if (value.startsWith("#")) {
+    const hex = value.slice(1);
+    if (hex.length === 3) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16)
+      };
+    }
+    if (hex.length >= 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+      };
+    }
+  }
+
+  const rgbMatch = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgbMatch) {
+    return {
+      r: Number(rgbMatch[1]),
+      g: Number(rgbMatch[2]),
+      b: Number(rgbMatch[3])
+    };
+  }
+
+  return { r: 17, g: 24, b: 39 };
+}
+
+function getTextAngle(obj: fabric.Object) {
+  const withTotalAngle = obj as fabric.Object & { getTotalAngle?: () => number };
+  if (typeof withTotalAngle.getTotalAngle === "function") return withTotalAngle.getTotalAngle();
+  return obj.angle || 0;
+}
+
+function buildHeaderParts(options: RenderImageOptions) {
+  const separator = " - ";
+  const headerText = options.headerText || "Modular Closets Renderings";
+  const headerProjectName = options.headerProjectName || "";
+  const headerCustomerName = options.headerCustomerName || "";
+
+  return [
+    { text: headerProjectName, fill: "#ea580c", fontStyle: "bold" as const },
+    { text: separator, fill: "#64748b", fontStyle: "normal" as const },
+    { text: headerText, fill: "#334155", fontStyle: "normal" as const },
+    { text: separator, fill: "#64748b", fontStyle: "normal" as const },
+    { text: headerCustomerName, fill: "#64748b", fontStyle: "normal" as const }
+  ].filter((item) => item.text !== "");
+}
+
+function drawSelectableHeader(doc: jsPDF, options: RenderImageOptions, scaleY: number) {
+  const parts = buildHeaderParts(options);
+  if (parts.length === 0) return;
+
+  const fontSize = 16 * scaleY;
+  const y = 18 * scaleY;
+
+  let totalWidth = 0;
+  parts.forEach((part) => {
+    doc.setFont("helvetica", part.fontStyle);
+    doc.setFontSize(fontSize);
+    totalWidth += doc.getTextWidth(part.text);
+  });
+
+  let cursorX = (PDF_PAGE_WIDTH - totalWidth) / 2;
+  parts.forEach((part) => {
+    const color = parseColor(part.fill);
+    doc.setFont("helvetica", part.fontStyle);
+    doc.setFontSize(fontSize);
+    doc.setTextColor(color.r, color.g, color.b);
+    doc.text(part.text, cursorX, y, { baseline: "top" });
+    cursorX += doc.getTextWidth(part.text);
+  });
+}
+
+export async function renderPageToImage(page: Page, options: RenderImageOptions = {}): Promise<string> {
+  const canvas = await buildCanvasForPage(page, options);
+  const dataUrl = toDataUrl(canvas, options);
+  canvas.dispose();
+  return dataUrl;
 }
 
 export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {}) {
@@ -86,21 +196,109 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     format: "a4",
     compress: true
   });
+
   let pageCount = 0;
+  const scaleX = PDF_PAGE_WIDTH / A4_PX.width;
+  const scaleY = PDF_PAGE_HEIGHT / A4_PX.height;
+
   for (let i = 0; i < pages.length; i += 1) {
-    const data = await renderPageToImage(pages[i], {
-      format: "jpeg",
-      multiplier: 1.5,
-      quality: 0.86,
+    const pageOptions: RenderImageOptions = {
       ...options,
       pageNumber: i + 1,
       totalPages: pages.length
+    };
+
+    const canvas = await buildCanvasForPage(pages[i], pageOptions);
+
+    const textObjects = flattenObjects(canvas.getObjects())
+      .filter((obj) => isFabricTextObject(obj))
+      // Skip text that is inside fabric groups (header is grouped and was causing broken overlay)
+      .filter((obj) => !obj.group)
+      .map((obj) => obj as fabric.Text | fabric.IText | fabric.Textbox);
+
+    const textOverlays: Array<{
+      text: string;
+      x: number;
+      y: number;
+      maxWidth?: number;
+      angle: number;
+      align: "left" | "center" | "right";
+      fontSize: number;
+      lineHeight: number;
+      fontFamily: "helvetica" | "times" | "courier";
+      fontStyle: "normal" | "bold" | "italic" | "bolditalic";
+      color: { r: number; g: number; b: number };
+    }> = [];
+
+    textObjects.forEach((obj) => {
+      const text = (obj.text || "").trim();
+      if (!text) return;
+
+      const bounds = obj.getBoundingRect(true, true);
+      const rawAlign = obj.textAlign === "center" || obj.textAlign === "right" ? obj.textAlign : "left";
+      const x = rawAlign === "center" ? bounds.left + bounds.width / 2 : rawAlign === "right" ? bounds.left + bounds.width : bounds.left;
+      const maxWidth = obj.type === "textbox" ? obj.getScaledWidth() : undefined;
+      const scaledFontSize = (obj.fontSize || 16) * (obj.scaleY || 1);
+
+      textOverlays.push({
+        text: obj.text || "",
+        x,
+        y: bounds.top,
+        maxWidth,
+        angle: getTextAngle(obj),
+        align: rawAlign,
+        fontSize: scaledFontSize,
+        lineHeight: obj.lineHeight || 1.16,
+        fontFamily: mapFontFamily(obj.fontFamily),
+        fontStyle: mapFontStyle(obj.fontWeight, obj.fontStyle),
+        color: parseColor(obj.fill)
+      });
     });
-    if (!data) continue;
+
+    const headerGroup = canvas.getObjects().find((obj) => obj.data?.id === HEADER_ID);
+    if (headerGroup) headerGroup.set({ visible: false });
+
+    textObjects.forEach((obj) => obj.set({ visible: false }));
+    canvas.renderAll();
+
+    const backgroundData = toDataUrl(canvas, {
+      ...pageOptions,
+      format: "jpeg",
+      multiplier: 1.5,
+      quality: 0.86
+    });
+
     if (pageCount > 0) doc.addPage();
-    doc.addImage(data, "JPEG", 0, 0, 595, 842, undefined, "MEDIUM");
+    doc.addImage(backgroundData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
+
+    drawSelectableHeader(doc, pageOptions, scaleY);
+
+    textOverlays.forEach((item) => {
+      doc.setFont(item.fontFamily, item.fontStyle);
+      doc.setFontSize(Math.max(6, item.fontSize * scaleY));
+      doc.setLineHeightFactor(item.lineHeight);
+      doc.setTextColor(item.color.r, item.color.g, item.color.b);
+
+      const textOptions: {
+        baseline: "top";
+        align: "left" | "center" | "right";
+        angle?: number;
+        maxWidth?: number;
+      } = {
+        baseline: "top",
+        align: item.align
+      };
+
+      if (Math.abs(item.angle) > 0.01) textOptions.angle = item.angle;
+      if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = item.maxWidth * scaleX;
+
+      doc.text(item.text, item.x * scaleX, item.y * scaleY, textOptions);
+    });
+
+    canvas.dispose();
     pageCount += 1;
   }
+
   doc.save(`proposal-${Date.now()}.pdf`);
 }
 

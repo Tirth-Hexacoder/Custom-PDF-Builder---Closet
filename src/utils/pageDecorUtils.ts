@@ -147,13 +147,13 @@ function addOrUpdateContact(canvas: AnyCanvas, designerEmail?: string, designerM
 
   const contact = new fabric.Textbox(text, {
     left: (canvas.getWidth() - 360) / 2,
-    top: 52,
-    width: 360,
+    top: 70,
+    width: 400,
     fontFamily: "Inter",
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: "600",
     lineHeight: 1.25,
-    fill: "#475569",
+    fill: "#000000",
     textAlign: "center",
     editable: false
   });
@@ -182,12 +182,12 @@ function addPageNumber(canvas: AnyCanvas, pageNumber?: number, totalPages?: numb
   if (!pageNumber || !totalPages) return;
   const pageText = new fabric.Text(`Page ${pageNumber} of ${totalPages}`, {
     left: 34,
-    top: canvas.getHeight() - 38,
+    top: canvas.getHeight() - 28,
     originX: "left",
     originY: "bottom",
     fontFamily: "Inter",
     fontSize: 12,
-    fill: "#64748b",
+    fill: "#000000",
     textAlign: "left"
   });
   pageText.set({ data: { id: PAGE_NUMBER_ID } });
@@ -201,10 +201,10 @@ function addFooter(canvas: AnyCanvas, footerLogoUrl: string) {
       footerLogoUrl,
       (img) => {
         if (img) {
-          img.scaleToWidth(150);
+          img.scaleToWidth(180);
           img.set({
             left: (canvas.getWidth() - img.getScaledWidth()) / 2,
-            top: canvas.getHeight() - img.getScaledHeight() - 38
+            top: canvas.getHeight() - img.getScaledHeight() - 28
           });
           img.set({ data: { id: FOOTER_ID } });
           lockObject(img);
@@ -226,7 +226,7 @@ function addStamp(canvas: AnyCanvas, stampUrl: string) {
           img.scaleToWidth(78);
           img.set({
             left: canvas.getWidth() - img.getScaledWidth() - 18,
-            top: canvas.getHeight() - img.getScaledHeight() - 18
+            top: canvas.getHeight() - img.getScaledHeight() - 8
           });
           img.set({ data: { id: STAMP_ID } });
           lockObject(img);
