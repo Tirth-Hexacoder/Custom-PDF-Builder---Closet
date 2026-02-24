@@ -58,6 +58,11 @@ type RotationGuideState = {
   point: { x: number; y: number } | null;
 };
 
+type AlignGuideState = {
+  x: number | null;
+  y: number | null;
+};
+
 export class PageCanvasController {
   private static GUIDE_SNAP_THRESHOLD = 6;
   private static rotationGlyph: string | null = null;
@@ -86,6 +91,7 @@ export class PageCanvasController {
     showCenterX: false,
     showCenterY: false
   };
+  private alignGuideState: AlignGuideState = { x: null, y: null };
   private handleObjectMoving: (event: fabric.IEvent) => void;
   private handleObjectRotating: (event: fabric.IEvent) => void;
   private handleMouseUp: () => void;
@@ -325,34 +331,106 @@ export class PageCanvasController {
     const snapThreshold = PageCanvasController.GUIDE_SNAP_THRESHOLD;
     let snappedX = false;
     let snappedY = false;
+    let centerSnappedX = false;
+    let centerSnappedY = false;
+    let alignX: number | null = null;
+    let alignY: number | null = null;
 
-    if (Math.abs(center.x - pageCenterX) <= snapThreshold) {
-      target.setPositionByOrigin(new fabric.Point(pageCenterX, center.y), "center", "center");
+    const otherObjects = this.canvas.getObjects().filter((obj) => obj !== target);
+    const bounds = target.getBoundingRect(true, true);
+    const targetLeft = bounds.left;
+    const targetRight = bounds.left + bounds.width;
+    const targetTop = bounds.top;
+    const targetBottom = bounds.top + bounds.height;
+    const targetCenterX = bounds.left + bounds.width / 2;
+    const targetCenterY = bounds.top + bounds.height / 2;
+
+    let bestDx = snapThreshold + 1;
+    let bestDy = snapThreshold + 1;
+
+    otherObjects.forEach((obj) => {
+      const b = obj.getBoundingRect(true, true);
+      const objLeft = b.left;
+      const objRight = b.left + b.width;
+      const objTop = b.top;
+      const objBottom = b.top + b.height;
+      const objCenterX = b.left + b.width / 2;
+      const objCenterY = b.top + b.height / 2;
+
+      const xCandidates = [
+        { value: objLeft, targetValue: targetLeft },
+        { value: objRight, targetValue: targetRight },
+        { value: objCenterX, targetValue: targetCenterX }
+      ];
+      xCandidates.forEach(({ value, targetValue }) => {
+        const delta = value - targetValue;
+        if (Math.abs(delta) < Math.abs(bestDx)) {
+          bestDx = delta;
+          alignX = value;
+        }
+      });
+
+      const yCandidates = [
+        { value: objTop, targetValue: targetTop },
+        { value: objBottom, targetValue: targetBottom },
+        { value: objCenterY, targetValue: targetCenterY }
+      ];
+      yCandidates.forEach(({ value, targetValue }) => {
+        const delta = value - targetValue;
+        if (Math.abs(delta) < Math.abs(bestDy)) {
+          bestDy = delta;
+          alignY = value;
+        }
+      });
+    });
+
+    if (Math.abs(bestDx) <= snapThreshold) {
+      target.set({ left: (target.left ?? 0) + bestDx });
       snappedX = true;
+    } else {
+      alignX = Math.abs(bestDx) <= snapThreshold * 1.5 ? alignX : null;
     }
-    if (Math.abs(center.y - pageCenterY) <= snapThreshold) {
-      const newCenter = target.getCenterPoint();
-      target.setPositionByOrigin(new fabric.Point(newCenter.x, pageCenterY), "center", "center");
+
+    if (Math.abs(bestDy) <= snapThreshold) {
+      target.set({ top: (target.top ?? 0) + bestDy });
       snappedY = true;
+    } else {
+      alignY = Math.abs(bestDy) <= snapThreshold * 1.5 ? alignY : null;
+    }
+
+    const newCenter = target.getCenterPoint();
+    if (Math.abs(newCenter.x - pageCenterX) <= snapThreshold) {
+      target.setPositionByOrigin(new fabric.Point(pageCenterX, center.y), "center", "center");
+      centerSnappedX = true;
+    }
+    if (Math.abs(newCenter.y - pageCenterY) <= snapThreshold) {
+      const updatedCenter = target.getCenterPoint();
+      target.setPositionByOrigin(new fabric.Point(updatedCenter.x, pageCenterY), "center", "center");
+      centerSnappedY = true;
     }
 
     target.setCoords();
 
-    const bounds = target.getBoundingRect(true, true);
+    const updatedBounds = target.getBoundingRect(true, true);
+    const finalCenter = target.getCenterPoint();
     this.guideState = {
       active: true,
       bounds: {
-        left: bounds.left,
-        right: bounds.left + bounds.width,
-        top: bounds.top,
-        bottom: bounds.top + bounds.height,
-        width: bounds.width,
-        height: bounds.height,
-        centerX: bounds.left + bounds.width / 2,
-        centerY: bounds.top + bounds.height / 2
+        left: updatedBounds.left,
+        right: updatedBounds.left + updatedBounds.width,
+        top: updatedBounds.top,
+        bottom: updatedBounds.top + updatedBounds.height,
+        width: updatedBounds.width,
+        height: updatedBounds.height,
+        centerX: updatedBounds.left + updatedBounds.width / 2,
+        centerY: updatedBounds.top + updatedBounds.height / 2
       },
-      showCenterX: snappedX || Math.abs(center.x - pageCenterX) <= snapThreshold * 1.5,
-      showCenterY: snappedY || Math.abs(center.y - pageCenterY) <= snapThreshold * 1.5
+      showCenterX: centerSnappedX,
+      showCenterY: centerSnappedY
+    };
+    this.alignGuideState = {
+      x: snappedX ? alignX : alignX,
+      y: snappedY ? alignY : alignY
     };
 
     this.canvas.requestRenderAll();
@@ -377,6 +455,7 @@ export class PageCanvasController {
     if (!this.guideState.active && !this.rotationGuideState.active) return;
     this.guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
     this.rotationGuideState = { active: false, angle: 0, point: null };
+    this.alignGuideState = { x: null, y: null };
     this.canvas.requestRenderAll();
   }
 
@@ -451,7 +530,8 @@ export class PageCanvasController {
       ctx.restore();
     };
 
-    if (shouldRenderGuides && this.guideState.bounds) {
+    const suppressMeasurements = this.alignGuideState.x !== null || this.alignGuideState.y !== null;
+    if (shouldRenderGuides && this.guideState.bounds && !suppressMeasurements) {
       const { bounds, showCenterX, showCenterY } = this.guideState;
       const leftDistance = Math.max(0, Math.round(bounds.left));
       const rightDistance = Math.max(0, Math.round(pageWidth - bounds.right));
@@ -487,6 +567,26 @@ export class PageCanvasController {
       const normalized = ((Math.round(angle) % 360) + 360) % 360;
       const label = `${normalized}°`;
       drawLabel(label, point.x, point.y - 18);
+    }
+
+    if (this.alignGuideState.x !== null || this.alignGuideState.y !== null) {
+      ctx.save();
+      ctx.strokeStyle = "#16a34a";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      if (this.alignGuideState.x !== null) {
+        ctx.beginPath();
+        ctx.moveTo(this.alignGuideState.x, 0);
+        ctx.lineTo(this.alignGuideState.x, pageHeight);
+        ctx.stroke();
+      }
+      if (this.alignGuideState.y !== null) {
+        ctx.beginPath();
+        ctx.moveTo(0, this.alignGuideState.y);
+        ctx.lineTo(pageWidth, this.alignGuideState.y);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
   }
 
