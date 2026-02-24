@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type WheelEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react-lite";
 import type { FabricCanvasHandle, PendingCapture } from "../../types";
 import { useStore } from "../../state/Root";
@@ -7,11 +7,8 @@ import { FabricCanvas } from "./FabricCanvas";
 export const EditorTab = observer(function EditorTab() {
   const store = useStore();
   const canvasRef = useRef<FabricCanvasHandle | null>(null);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
   const processedCaptureIdsRef = useRef<Set<string>>(new Set());
   const pendingCaptureBufferRef = useRef<PendingCapture[]>([]);
-  const pageSwitchLockRef = useRef(0);
-  const pendingPageDirectionRef = useRef<"next" | "prev" | null>(null);
   const firstPageRenderRef = useRef(true);
   const [canvasReady, setCanvasReady] = useState(false);
   const [isPageSwitching, setIsPageSwitching] = useState(false);
@@ -61,23 +58,6 @@ export const EditorTab = observer(function EditorTab() {
   }, [canvasReady, store.activePageId]);
 
   useEffect(() => {
-    const container = viewportRef.current;
-    if (!container) return;
-    const canvasEl = container.querySelector(".canvas-container-outer") as HTMLElement | null;
-    if (!canvasEl) return;
-
-    const canvasTop = canvasEl.offsetTop;
-    const canvasBottom = canvasTop + canvasEl.offsetHeight;
-
-    if (pendingPageDirectionRef.current === "next") {
-      container.scrollTop = Math.max(0, canvasTop - 10);
-    } else if (pendingPageDirectionRef.current === "prev") {
-      container.scrollTop = Math.max(0, canvasBottom - container.clientHeight + 10);
-    }
-    pendingPageDirectionRef.current = null;
-  }, [store.activePageId]);
-
-  useEffect(() => {
     if (firstPageRenderRef.current) {
       firstPageRenderRef.current = false;
       return;
@@ -86,38 +66,6 @@ export const EditorTab = observer(function EditorTab() {
     const timer = window.setTimeout(() => setIsPageSwitching(false), 220);
     return () => window.clearTimeout(timer);
   }, [store.activePageId]);
-
-  const onViewportWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (Math.abs(event.deltaY) < 6) return;
-    if (Date.now() < pageSwitchLockRef.current) return;
-
-    const container = event.currentTarget;
-    const canvasEl = container.querySelector(".canvas-container-outer") as HTMLElement | null;
-    const canvasTop = canvasEl?.offsetTop ?? 0;
-    const canvasBottom = canvasTop + (canvasEl?.offsetHeight ?? container.scrollHeight);
-    const scrollBottom = container.scrollTop + container.clientHeight;
-    const isAtCanvasBottom = scrollBottom >= canvasBottom - 2;
-    const isAtCanvasTop = container.scrollTop <= Math.max(0, canvasTop - 2);
-
-    if (event.deltaY > 0 && isAtCanvasBottom) {
-      if (activePageIndex < store.pages.length - 1) {
-        event.preventDefault();
-        pageSwitchLockRef.current = Date.now() + 350;
-        pendingPageDirectionRef.current = "next";
-        store.setActivePageId(store.pages[activePageIndex + 1].id);
-      }
-      return;
-    }
-
-    if (event.deltaY < 0 && isAtCanvasTop) {
-      if (activePageIndex > 0) {
-        event.preventDefault();
-        pageSwitchLockRef.current = Date.now() + 350;
-        pendingPageDirectionRef.current = "prev";
-        store.setActivePageId(store.pages[activePageIndex - 1].id);
-      }
-    }
-  };
 
   return (
     <div className="editor-container">
@@ -291,46 +239,22 @@ export const EditorTab = observer(function EditorTab() {
         </aside>
 
         {/* Main Editor Viewport */}
-        <div className="editor-viewport" onWheel={onViewportWheel} ref={viewportRef}>
-          <div className="editor-page-stack">
-            {activePageIndex > 0 && (
-              <div
-                className="page-peek-card prev"
-                onClick={() => store.setActivePageId(store.pages[activePageIndex - 1].id)}
-                role="button"
-                tabIndex={0}
-              >
-                <span>Page {activePageIndex}</span>
-              </div>
-            )}
-
-            <div className={`canvas-container-outer ${isPageSwitching ? "is-page-switching" : ""}`}>
-              <FabricCanvas
-                ref={canvasRef}
-                page={activePage}
-                onReady={setCanvasReady}
-                onPageChange={(pageId, json) => store.setPageFabricJSON(pageId, json)}
-                headerText="Modular Closets Renderings"
-                headerProjectName={store.projectName}
-                headerCustomerName={store.customerName}
-                footerLogoUrl="https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg"
-                pageNumber={activePageIndex + 1}
-                totalPages={store.pages.length}
-                designerEmail={store.designerEmail}
-                designerMobile={store.mobileNo}
-              />
-            </div>
-
-            {activePageIndex < store.pages.length - 1 && (
-              <div
-                className="page-peek-card next"
-                onClick={() => store.setActivePageId(store.pages[activePageIndex + 1].id)}
-                role="button"
-                tabIndex={0}
-              >
-                <span>Page {activePageIndex + 2}</span>
-              </div>
-            )}
+        <div className="editor-viewport">
+          <div className={`canvas-container-outer ${isPageSwitching ? "is-page-switching" : ""}`}>
+            <FabricCanvas
+              ref={canvasRef}
+              page={activePage}
+              onReady={setCanvasReady}
+              onPageChange={(pageId, json) => store.setPageFabricJSON(pageId, json)}
+              headerText="Modular Closets Renderings"
+              headerProjectName={store.projectName}
+              headerCustomerName={store.customerName}
+              footerLogoUrl="https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg"
+              pageNumber={activePageIndex + 1}
+              totalPages={store.pages.length}
+              designerEmail={store.designerEmail}
+              designerMobile={store.mobileNo}
+            />
           </div>
         </div>
       </div>
