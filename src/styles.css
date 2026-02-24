@@ -67,7 +67,6 @@ button {
 
 .pill-item {
   background: #94a3b8;
-  /* Slate gray from reference */
   padding: 8px 24px;
   border-radius: 99px;
   display: flex;
@@ -75,6 +74,7 @@ button {
   gap: 12px;
   color: #ffffff;
   box-shadow: var(--shadow-sm);
+  pointer-events: none;
 }
 
 .pill-item.secondary {
@@ -82,6 +82,8 @@ button {
   border: 1px solid var(--border);
   color: var(--secondary);
 }
+
+
 
 .pill-text {
   font-size: 1rem;

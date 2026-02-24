@@ -14,7 +14,7 @@ const tabs: Array<{ id: TabId; label: string }> = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("scene"); // Start with scene as per new flow
+  const [activeTab, setActiveTab] = useState<TabId>("scene");
 
   useAutosave();
 

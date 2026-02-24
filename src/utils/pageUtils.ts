@@ -52,8 +52,15 @@ type GuideState = {
   showCenterY: boolean;
 };
 
+type RotationGuideState = {
+  active: boolean;
+  angle: number;
+  point: { x: number; y: number } | null;
+};
+
 export class PageCanvasController {
   private static GUIDE_SNAP_THRESHOLD = 6;
+  private static rotationGlyph: string | null = null;
   private canvas: fabric.Canvas | null = null;
   private clipboard: fabric.Object | null = null;
   private history: string[] = [];
@@ -80,9 +87,15 @@ export class PageCanvasController {
     showCenterY: false
   };
   private handleObjectMoving: (event: fabric.IEvent) => void;
+  private handleObjectRotating: (event: fabric.IEvent) => void;
   private handleMouseUp: () => void;
   private handleBeforeRender: () => void;
   private handleAfterRender: () => void;
+  private rotationGuideState: RotationGuideState = {
+    active: false,
+    angle: 0,
+    point: null
+  };
 
   constructor({ host, page, onPageChange, onReady }: PageCanvasControllerOptions) {
     this.onPageChange = onPageChange;
@@ -90,6 +103,7 @@ export class PageCanvasController {
     this.handleDeleteKey = (event: KeyboardEvent) => this.onDeleteKey(event);
     this.handleClipboardShortcuts = (event: KeyboardEvent) => this.onClipboardShortcuts(event);
     this.handleObjectMoving = (event: fabric.IEvent) => this.onObjectMoving(event);
+    this.handleObjectRotating = (event: fabric.IEvent) => this.onObjectRotating(event);
     this.handleMouseUp = () => this.clearGuides();
     this.handleBeforeRender = () => this.clearGuideLayer();
     this.handleAfterRender = () => this.renderGuides();
@@ -167,6 +181,56 @@ export class PageCanvasController {
     fabric.Object.prototype.cornerSize = 8;
     fabric.Object.prototype.borderColor = "#2563eb";
     fabric.Object.prototype.padding = 4;
+
+    const renderRotationIcon = (
+      ctx: CanvasRenderingContext2D,
+      left: number,
+      top: number,
+      _styleOverride: Record<string, unknown>,
+      fabricObject: fabric.Object
+    ) => {
+      const centerX = left;
+      const centerY = top;
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate((fabricObject.angle || 0) * (Math.PI / 180));
+      const glyph = PageCanvasController.getRotationGlyph();
+      if (glyph) {
+        ctx.fillStyle = "#f97316";
+        ctx.font = "900 16px \"Font Awesome 6 Free\"";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(glyph, 0, 0);
+      } else {
+        const radius = 7;
+        ctx.strokeStyle = "#f97316";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, Math.PI * 0.1, Math.PI * 1.6);
+        ctx.stroke();
+
+        const arrowX = radius * Math.cos(Math.PI * 1.6);
+        const arrowY = radius * Math.sin(Math.PI * 1.6);
+        ctx.beginPath();
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(arrowX - 4, arrowY - 2);
+        ctx.lineTo(arrowX - 1, arrowY + 5);
+        ctx.closePath();
+        ctx.fillStyle = "#f97316";
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+
+    if (fabric.Object.prototype.controls?.mtr) {
+      fabric.Object.prototype.controls.mtr.render = renderRotationIcon;
+      fabric.Object.prototype.controls.mtr.sizeX = 24;
+      fabric.Object.prototype.controls.mtr.sizeY = 24;
+      (fabric.Object.prototype.controls.mtr as { withConnection?: boolean }).withConnection = false;
+      (fabric.Object.prototype.controls.mtr as { offsetY?: number }).offsetY = -15;
+
+    }
+    (fabric.Object.prototype as { rotatingPointOffset?: number }).rotatingPointOffset = 2;
     canvas.setZoom(1);
     canvas.setWidth(A4_PX.width);
     canvas.setHeight(A4_PX.height);
@@ -175,6 +239,7 @@ export class PageCanvasController {
     canvas.on("object:modified", this.pushHistory);
     canvas.on("object:removed", this.pushHistory);
     canvas.on("object:moving", this.handleObjectMoving);
+    canvas.on("object:rotating", this.handleObjectRotating);
     canvas.on("before:render", this.handleBeforeRender);
     canvas.on("after:render", this.handleAfterRender);
     canvas.on("mouse:up", this.handleMouseUp);
@@ -193,6 +258,36 @@ export class PageCanvasController {
 
     window.addEventListener("keydown", this.handleDeleteKey);
     window.addEventListener("keydown", this.handleClipboardShortcuts);
+  }
+
+  private static getRotationGlyph() {
+    if (PageCanvasController.rotationGlyph !== null) return PageCanvasController.rotationGlyph;
+    if (typeof document === "undefined") {
+      PageCanvasController.rotationGlyph = null;
+      return null;
+    }
+    const el = document.createElement("i");
+    el.className = "fa-solid fa-rotate-right";
+    el.style.position = "absolute";
+    el.style.left = "-9999px";
+    el.style.fontSize = "16px";
+    document.body.appendChild(el);
+    const content = getComputedStyle(el, "::before").getPropertyValue("content");
+    document.body.removeChild(el);
+
+    if (!content || content === "none") {
+      PageCanvasController.rotationGlyph = null;
+      return null;
+    }
+    const cleaned = content.replace(/['"]/g, "");
+    if (cleaned.startsWith("\\")) {
+      const code = cleaned.replace("\\", "");
+      const char = String.fromCharCode(parseInt(code, 16));
+      PageCanvasController.rotationGlyph = char;
+      return char;
+    }
+    PageCanvasController.rotationGlyph = cleaned;
+    return cleaned;
   }
 
   private seedHistoryFromCanvas = () => {
@@ -263,10 +358,25 @@ export class PageCanvasController {
     this.canvas.requestRenderAll();
   }
 
+  private onObjectRotating(event: fabric.IEvent) {
+    if (!this.canvas) return;
+    const target = event.target as fabric.Object | undefined;
+    if (!target) return;
+    const coords = target.oCoords?.mtr;
+    if (!coords) return;
+    this.rotationGuideState = {
+      active: true,
+      angle: target.angle ?? 0,
+      point: { x: coords.x, y: coords.y }
+    };
+    this.canvas.requestRenderAll();
+  }
+
   private clearGuides() {
     if (!this.canvas) return;
-    if (!this.guideState.active) return;
+    if (!this.guideState.active && !this.rotationGuideState.active) return;
     this.guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
+    this.rotationGuideState = { active: false, angle: 0, point: null };
     this.canvas.requestRenderAll();
   }
 
@@ -281,9 +391,10 @@ export class PageCanvasController {
     if (!this.canvas) return;
     const ctx = this.canvas.contextTop;
     if (!ctx) return;
-    if (!this.guideState.active || !this.guideState.bounds) return;
+    const shouldRenderGuides = this.guideState.active && this.guideState.bounds;
+    const shouldRenderRotation = this.rotationGuideState.active && this.rotationGuideState.point;
+    if (!shouldRenderGuides && !shouldRenderRotation) return;
 
-    const { bounds, showCenterX, showCenterY } = this.guideState;
     const pageWidth = this.canvas.getWidth();
     const pageHeight = this.canvas.getHeight();
 
@@ -340,33 +451,43 @@ export class PageCanvasController {
       ctx.restore();
     };
 
-    const leftDistance = Math.max(0, Math.round(bounds.left));
-    const rightDistance = Math.max(0, Math.round(pageWidth - bounds.right));
-    const topDistance = Math.max(0, Math.round(bounds.top));
-    const bottomDistance = Math.max(0, Math.round(pageHeight - bounds.bottom));
+    if (shouldRenderGuides && this.guideState.bounds) {
+      const { bounds, showCenterX, showCenterY } = this.guideState;
+      const leftDistance = Math.max(0, Math.round(bounds.left));
+      const rightDistance = Math.max(0, Math.round(pageWidth - bounds.right));
+      const topDistance = Math.max(0, Math.round(bounds.top));
+      const bottomDistance = Math.max(0, Math.round(pageHeight - bounds.bottom));
 
-    drawMeasureLine(0, bounds.centerY, bounds.left, bounds.centerY, `${leftDistance}px`);
-    drawMeasureLine(bounds.right, bounds.centerY, pageWidth, bounds.centerY, `${rightDistance}px`);
-    drawMeasureLine(bounds.centerX, 0, bounds.centerX, bounds.top, `${topDistance}px`);
-    drawMeasureLine(bounds.centerX, bounds.bottom, bounds.centerX, pageHeight, `${bottomDistance}px`);
+      drawMeasureLine(0, bounds.centerY, bounds.left, bounds.centerY, `${leftDistance}px`);
+      drawMeasureLine(bounds.right, bounds.centerY, pageWidth, bounds.centerY, `${rightDistance}px`);
+      drawMeasureLine(bounds.centerX, 0, bounds.centerX, bounds.top, `${topDistance}px`);
+      drawMeasureLine(bounds.centerX, bounds.bottom, bounds.centerX, pageHeight, `${bottomDistance}px`);
 
-    ctx.save();
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 6]);
-    if (showCenterX) {
-      ctx.beginPath();
-      ctx.moveTo(pageWidth / 2, 0);
-      ctx.lineTo(pageWidth / 2, pageHeight);
-      ctx.stroke();
+      ctx.save();
+      ctx.strokeStyle = "#f97316";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      if (showCenterX) {
+        ctx.beginPath();
+        ctx.moveTo(pageWidth / 2, 0);
+        ctx.lineTo(pageWidth / 2, pageHeight);
+        ctx.stroke();
+      }
+      if (showCenterY) {
+        ctx.beginPath();
+        ctx.moveTo(0, pageHeight / 2);
+        ctx.lineTo(pageWidth, pageHeight / 2);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
-    if (showCenterY) {
-      ctx.beginPath();
-      ctx.moveTo(0, pageHeight / 2);
-      ctx.lineTo(pageWidth, pageHeight / 2);
-      ctx.stroke();
+
+    if (shouldRenderRotation && this.rotationGuideState.point) {
+      const { angle, point } = this.rotationGuideState;
+      const normalized = ((Math.round(angle) % 360) + 360) % 360;
+      const label = `${normalized}°`;
+      drawLabel(label, point.x, point.y - 18);
     }
-    ctx.restore();
   }
 
   private removeActiveObjects() {
