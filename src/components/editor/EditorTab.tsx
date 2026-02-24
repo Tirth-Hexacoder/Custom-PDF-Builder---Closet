@@ -1,12 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
-import {
-  addPage,
-  builderStore,
-  deleteActivePage,
-  setPageFabricJSON,
-  type PendingCapture
-} from "../../state/builderStore";
+import { builderStore, type PendingCapture } from "../../state/builderStore";
+import { addPage, deleteActivePage, setPageFabricJSON } from "../../utils/editorUtils";
 import { FabricCanvas, type FabricCanvasHandle } from "./FabricCanvas";
 
 export function EditorTab() {

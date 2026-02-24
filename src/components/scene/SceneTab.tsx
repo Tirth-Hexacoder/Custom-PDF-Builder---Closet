@@ -4,7 +4,7 @@ import { OrbitControls } from "@react-three/drei";
 import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type { WebGLRenderer } from "three";
-import { addCapture } from "../../state/builderStore";
+import { addCapture } from "../../utils/editorUtils";
 
 function CaptureBridge({ glRef }: { glRef: MutableRefObject<WebGLRenderer | null> }) {
   const { gl } = useThree();

@@ -1,48 +1,16 @@
-import { jsPDF } from "jspdf";
 import { useSnapshot } from "valtio";
-import { fabric } from "fabric";
-import { A4_PX } from "@closet/core";
-import { builderStore, type Page } from "../../state/builderStore";
-
-async function renderPage(page: Page): Promise<string | null> {
-  if (!page.fabricJSON) return null;
-  const el = document.createElement("canvas");
-  const canvas = new fabric.StaticCanvas(el, { width: A4_PX.width, height: A4_PX.height });
-  return new Promise((resolve) => {
-    canvas.loadFromJSON(page.fabricJSON, () => {
-      canvas.renderAll();
-      const dataUrl = canvas.toDataURL({ format: "png", multiplier: 2 });
-      canvas.dispose();
-      resolve(dataUrl);
-    });
-  });
-}
+import { builderStore } from "../../state/builderStore";
+import { exportPagesAsImages, exportPagesAsPdf } from "../../utils/exportUtils";
 
 export function ExportTab() {
   const snap = useSnapshot(builderStore);
 
   const exportPDF = async () => {
-    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-    let pageCount = 0;
-    for (let i = 0; i < snap.pages.length; i += 1) {
-      const data = await renderPage(snap.pages[i]);
-      if (!data) continue;
-      if (pageCount > 0) doc.addPage();
-      doc.addImage(data, "PNG", 0, 0, 595, 842, undefined, "FAST");
-      pageCount += 1;
-    }
-    doc.save(`proposal-${Date.now()}.pdf`);
+    await exportPagesAsPdf(snap.pages);
   };
 
   const exportImages = async () => {
-    for (let i = 0; i < snap.pages.length; i += 1) {
-      const data = await renderPage(snap.pages[i]);
-      if (!data) continue;
-      const a = document.createElement("a");
-      a.href = data;
-      a.download = `${snap.pages[i].name.toLowerCase().replace(/\s+/g, "-")}.png`;
-      a.click();
-    }
+    await exportPagesAsImages(snap.pages);
   };
 
   return (
