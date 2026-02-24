@@ -3,17 +3,16 @@ import { Toaster } from "react-hot-toast";
 import { SceneTab } from "./components/scene/SceneTab";
 import { EditorTab } from "./components/editor/EditorTab";
 import { ExportTab } from "./components/editor/ExportTab";
+import type { AppTab, TabId } from "./types";
 
-type TabId = "scene" | "editor" | "download";
-
-const tabs: Array<{ id: TabId; label: string }> = [
+const tabs: AppTab[] = [
   { id: "scene", label: "Scene" },
   { id: "editor", label: "Editor" },
   { id: "download", label: "Download" }
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("scene");
+  const [activeTab, setActiveTab] = useState<TabId>("editor");
 
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
   const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label || "Scene";

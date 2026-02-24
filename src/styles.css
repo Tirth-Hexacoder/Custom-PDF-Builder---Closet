@@ -436,8 +436,18 @@ button {
   align-items: flex-start;
   justify-content: center;
   overflow: auto;
+  scroll-behavior: smooth;
   position: relative;
   padding: 24px 48px 48px;
+}
+
+.editor-page-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  min-width: 0;
 }
 
 .canvas-container-outer {
@@ -448,6 +458,57 @@ button {
   position: relative;
   line-height: 0;
   border: 1px solid #d1d5db;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.page-peek-card {
+  width: 794px;
+  max-width: 100%;
+  height: 170px;
+  border: 1px solid #d1d5db;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  position: relative;
+  line-height: 1;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.page-peek-card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0) 0%, rgba(226, 232, 240, 0.6) 100%);
+  pointer-events: none;
+}
+
+.page-peek-card:hover {
+  border-color: #94a3b8;
+}
+
+.canvas-container-outer.is-page-switching {
+  animation: page-switch-in 220ms ease;
+}
+
+@keyframes page-switch-in {
+  0% {
+    opacity: 0.75;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .tool-btn {

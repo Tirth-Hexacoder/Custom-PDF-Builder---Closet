@@ -1,34 +1,9 @@
 import { A4_PX } from "@closet/core";
 import { fabric } from "fabric";
-import type { FabricJSON, Page } from "../state/Store";
+import type { CreateCanvasOptions, FabricCanvasHandle, FabricJSON, Page } from "../types";
+import { applyPageDecorations, isDecorationId, isLockedDecorationId } from "./pageDecorUtils";
 
-export type FabricCanvasHandle = {
-  addText: () => void;
-  setTextStyle: (style: { fontWeight?: string; fontStyle?: string; underline?: boolean; fill?: string; fontSize?: number }) => void;
-  setTextAlign: (align: "left" | "center" | "right" | "justify") => void;
-  alignObjects: (align: "left" | "center" | "right") => void;
-  addPlaceholder: (key: string) => void;
-  addBOMTable: (rows: Array<{ sku: string; name: string; qty: number; price: number }>) => void;
-  addImage: (dataUrl: string) => void;
-  copy: () => void;
-  paste: () => void;
-  duplicate: () => void;
-  undo: () => void;
-  redo: () => void;
-  deleteActive: () => void;
-  getPageImage: () => Promise<string>;
-};
-
-type PageCanvasControllerOptions = {
-  host: HTMLCanvasElement;
-  page?: Page;
-  onPageChange: (json: FabricJSON) => void;
-  onReady?: (ready: boolean) => void;
-  headerText?: string;
-  headerProjectName?: string;
-  headerCustomerName?: string;
-  footerLogoUrl?: string;
-};
+const GUIDE_SNAP_THRESHOLD = 6;
 
 function createBOMText(rows: Array<{ sku: string; name: string; qty: number; price: number }>) {
   const lines = ["BILL OF MATERIALS", "-----------------"];
@@ -40,593 +15,353 @@ function isTextObject(obj: fabric.Object | null | undefined) {
   return obj && ["i-text", "textbox", "text"].includes(obj.type);
 }
 
-type GuideState = {
-  active: boolean;
-  bounds: {
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-    width: number;
-    height: number;
-    centerX: number;
-    centerY: number;
-  } | null;
-  showCenterX: boolean;
-  showCenterY: boolean;
-};
+function getRotationGlyph() {
+  if (typeof document === "undefined") return null;
+  const el = document.createElement("i");
+  el.className = "fa-solid fa-rotate-right";
+  el.style.position = "absolute";
+  el.style.left = "-9999px";
+  el.style.fontSize = "16px";
+  document.body.appendChild(el);
+  const content = getComputedStyle(el, "::before").getPropertyValue("content");
+  document.body.removeChild(el);
+  if (!content || content === "none") return null;
+  const cleaned = content.replace(/['"]/g, "");
+  if (cleaned.startsWith("\\")) {
+    const code = cleaned.replace("\\", "");
+    return String.fromCharCode(parseInt(code, 16));
+  }
+  return cleaned;
+}
 
-type RotationGuideState = {
-  active: boolean;
-  angle: number;
-  point: { x: number; y: number } | null;
-};
+export function createPageCanvas(options: CreateCanvasOptions) {
+  const {
+    host,
+    page,
+    onPageChange,
+    onReady,
+    headerText: headerTextInput,
+    headerProjectName: headerProjectNameInput,
+    headerCustomerName: headerCustomerNameInput,
+    footerLogoUrl: footerLogoUrlInput,
+    pageNumber: pageNumberInput,
+    totalPages: totalPagesInput,
+    designerEmail: designerEmailInput,
+    designerMobile: designerMobileInput
+  } = options;
 
-type AlignGuideState = {
-  x: number | null;
-  y: number | null;
-};
+  let headerText = headerTextInput || "Modular Closets Renderings";
+  let headerProjectName = headerProjectNameInput || "";
+  let headerCustomerName = headerCustomerNameInput || "";
+  let footerLogoUrl = footerLogoUrlInput;
+  let pageNumber = pageNumberInput;
+  let totalPages = totalPagesInput;
+  let designerEmail = designerEmailInput;
+  let designerMobile = designerMobileInput;
 
-export class PageCanvasController {
-  private static GUIDE_SNAP_THRESHOLD = 6;
-  private static rotationGlyph: string | null = null;
-  private canvas: fabric.Canvas | null = null;
-  private clipboard: fabric.Object | null = null;
-  private history: string[] = [];
-  private historyIndex = -1;
-  private hasPageChanges = false;
-  private isRestoring = false;
-  private currentPageId: string | null = null;
-  private onPageChange: (json: FabricJSON) => void;
-  private onReady?: (ready: boolean) => void;
-  private defaultTextStyle = {
-    fill: "#1f2937",
-    fontSize: 24,
-    fontFamily: "Georgia",
-    fontWeight: "normal",
-    fontStyle: "normal",
-    underline: false
+  let onPageChangeRef = onPageChange;
+  let onReadyRef = onReady;
+
+  const canvas = new fabric.Canvas(host, {
+    width: A4_PX.width,
+    height: A4_PX.height,
+    backgroundColor: "#ffffff",
+    preserveObjectStacking: true,
+    selection: true,
+    selectionColor: "rgba(37, 99, 235, 0.1)",
+    selectionBorderColor: "#2563eb",
+    selectionLineWidth: 1
+  });
+
+  fabric.Object.prototype.transparentCorners = false;
+  fabric.Object.prototype.cornerColor = "#2563eb";
+  fabric.Object.prototype.cornerStyle = "circle";
+  fabric.Object.prototype.cornerSize = 8;
+  fabric.Object.prototype.borderColor = "#2563eb";
+  fabric.Object.prototype.padding = 4;
+
+  const renderRotationIcon = (
+    ctx: CanvasRenderingContext2D,
+    left: number,
+    top: number,
+    _styleOverride: Record<string, unknown>,
+    fabricObject: fabric.Object
+  ) => {
+    const glyph = getRotationGlyph();
+    const centerX = left;
+    const centerY = top;
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate((fabricObject.angle || 0) * (Math.PI / 180));
+    if (glyph) {
+      ctx.fillStyle = "#f97316";
+      ctx.font = "900 16px \"Font Awesome 6 Free\"";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(glyph, 0, 0);
+    }
+    ctx.restore();
   };
-  private handleDeleteKey: (event: KeyboardEvent) => void;
-  private handleClipboardShortcuts: (event: KeyboardEvent) => void;
-  private guideState: GuideState = {
+
+  if (fabric.Object.prototype.controls?.mtr) {
+    fabric.Object.prototype.controls.mtr.render = renderRotationIcon;
+    fabric.Object.prototype.controls.mtr.sizeX = 24;
+    fabric.Object.prototype.controls.mtr.sizeY = 24;
+    (fabric.Object.prototype.controls.mtr as { withConnection?: boolean }).withConnection = false;
+    (fabric.Object.prototype.controls.mtr as { offsetY?: number }).offsetY = -15;
+  }
+  (fabric.Object.prototype as { rotatingPointOffset?: number }).rotatingPointOffset = 2;
+
+  canvas.setZoom(1);
+  canvas.setWidth(A4_PX.width);
+  canvas.setHeight(A4_PX.height);
+
+  let clipboard: fabric.Object | null = null;
+  let history: string[] = [];
+  let historyIndex = -1;
+  let hasPageChanges = false;
+  let isRestoring = false;
+  let isApplyingDecorations = false;
+  let currentPageId: string | null = page?.id ?? null;
+  let isDisposed = false;
+
+  let guideState = {
     active: false,
-    bounds: null,
+    bounds: null as null | {
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+      width: number;
+      height: number;
+      centerX: number;
+      centerY: number;
+    },
     showCenterX: false,
     showCenterY: false
   };
-  private alignGuideState: AlignGuideState = { x: null, y: null };
-  private handleObjectMoving: (event: fabric.IEvent) => void;
-  private handleObjectRotating: (event: fabric.IEvent) => void;
-  private handleMouseUp: () => void;
-  private handleBeforeRender: () => void;
-  private handleAfterRender: () => void;
-  private rotationGuideState: RotationGuideState = {
+
+  let alignGuideState = { x: null as number | null, y: null as number | null };
+
+  let rotationGuideState = {
     active: false,
     angle: 0,
-    point: null
-  };
-  private headerText: string;
-  private headerProjectName: string;
-  private headerCustomerName: string;
-  private footerLogoUrl: string;
-
-  constructor({ host, page, onPageChange, onReady, headerText, headerProjectName, headerCustomerName, footerLogoUrl }: PageCanvasControllerOptions) {
-    this.onPageChange = onPageChange;
-    this.onReady = onReady;
-    this.headerText = headerText ?? "Modular Closets Renderings";
-    this.headerProjectName = headerProjectName ?? "";
-    this.headerCustomerName = headerCustomerName ?? "";
-    this.footerLogoUrl = footerLogoUrl ?? "https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg";
-    this.handleDeleteKey = (event: KeyboardEvent) => this.onDeleteKey(event);
-    this.handleClipboardShortcuts = (event: KeyboardEvent) => this.onClipboardShortcuts(event);
-    this.handleObjectMoving = (event: fabric.IEvent) => this.onObjectMoving(event);
-    this.handleObjectRotating = (event: fabric.IEvent) => this.onObjectRotating(event);
-    this.handleMouseUp = () => this.clearGuides();
-    this.handleBeforeRender = () => this.clearGuideLayer();
-    this.handleAfterRender = () => this.renderGuides();
-    this.initCanvas(host, page);
-  }
-
-  setCallbacks(onPageChange: (json: FabricJSON) => void, onReady?: (ready: boolean) => void) {
-    this.onPageChange = onPageChange;
-    this.onReady = onReady;
-  }
-
-  setHeaderFooter({
-    headerText,
-    headerProjectName,
-    headerCustomerName,
-    footerLogoUrl
-  }: {
-    headerText?: string;
-    headerProjectName?: string;
-    headerCustomerName?: string;
-    footerLogoUrl?: string;
-  }) {
-    if (headerText) this.headerText = headerText;
-    if (typeof headerProjectName === "string") this.headerProjectName = headerProjectName;
-    if (typeof headerCustomerName === "string") this.headerCustomerName = headerCustomerName;
-    if (footerLogoUrl) this.footerLogoUrl = footerLogoUrl;
-    this.ensureHeaderFooter();
-    this.canvas?.requestRenderAll();
-  }
-
-  dispose() {
-    window.removeEventListener("keydown", this.handleDeleteKey);
-    window.removeEventListener("keydown", this.handleClipboardShortcuts);
-    this.canvas?.dispose();
-    this.onReady?.(false);
-  }
-
-  loadPage(page?: Page) {
-    if (!this.canvas || !page) return;
-    if (page.id === this.currentPageId) return;
-    this.currentPageId = page.id;
-    this.isRestoring = true;
-    this.canvas.clear();
-    this.canvas.setBackgroundColor("#fff", this.canvas.renderAll.bind(this.canvas));
-    if (page.fabricJSON) {
-      this.canvas.loadFromJSON(page.fabricJSON, () => {
-        this.isRestoring = false;
-        this.ensureHeaderFooter();
-        this.canvas?.renderAll();
-        this.seedHistoryFromCanvas();
-      });
-    } else {
-      this.isRestoring = false;
-      this.ensureHeaderFooter();
-      this.canvas.renderAll();
-      this.seedHistoryFromCanvas();
-    }
-  }
-
-  getHandle(): FabricCanvasHandle {
-    return {
-      addText: () => this.addText(),
-      setTextStyle: (style) => this.setTextStyle(style),
-      setTextAlign: (align) => this.setTextAlign(align),
-      alignObjects: (align) => this.alignObjects(align),
-      addPlaceholder: (key) => this.addPlaceholder(key),
-      addBOMTable: (rows) => this.addBOMTable(rows),
-      addImage: (dataUrl) => this.addImage(dataUrl),
-      copy: () => this.copy(),
-      paste: () => this.paste(),
-      duplicate: () => this.duplicate(),
-      undo: () => this.undo(),
-      redo: () => this.redo(),
-      deleteActive: () => this.deleteActive(),
-      getPageImage: () => this.getPageImage()
-    };
-  }
-
-  private initCanvas(host: HTMLCanvasElement, page?: Page) {
-    const canvas = new fabric.Canvas(host, {
-      width: A4_PX.width,
-      height: A4_PX.height,
-      backgroundColor: "#ffffff",
-      preserveObjectStacking: true,
-      selection: true,
-      selectionColor: "rgba(37, 99, 235, 0.1)",
-      selectionBorderColor: "#2563eb",
-      selectionLineWidth: 1
-    });
-    this.canvas = canvas;
-    this.currentPageId = page?.id ?? null;
-
-    fabric.Object.prototype.transparentCorners = false;
-    fabric.Object.prototype.cornerColor = "#2563eb";
-    fabric.Object.prototype.cornerStyle = "circle";
-    fabric.Object.prototype.cornerSize = 8;
-    fabric.Object.prototype.borderColor = "#2563eb";
-    fabric.Object.prototype.padding = 4;
-
-    const renderRotationIcon = (
-      ctx: CanvasRenderingContext2D,
-      left: number,
-      top: number,
-      _styleOverride: Record<string, unknown>,
-      fabricObject: fabric.Object
-    ) => {
-      const centerX = left;
-      const centerY = top;
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate((fabricObject.angle || 0) * (Math.PI / 180));
-      const glyph = PageCanvasController.getRotationGlyph();
-      if (glyph) {
-        ctx.fillStyle = "#f97316";
-        ctx.font = "900 16px \"Font Awesome 6 Free\"";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(glyph, 0, 0);
-      } else {
-        const radius = 7;
-        ctx.strokeStyle = "#f97316";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, radius, Math.PI * 0.1, Math.PI * 1.6);
-        ctx.stroke();
-
-        const arrowX = radius * Math.cos(Math.PI * 1.6);
-        const arrowY = radius * Math.sin(Math.PI * 1.6);
-        ctx.beginPath();
-        ctx.moveTo(arrowX, arrowY);
-        ctx.lineTo(arrowX - 4, arrowY - 2);
-        ctx.lineTo(arrowX - 1, arrowY + 5);
-        ctx.closePath();
-        ctx.fillStyle = "#f97316";
-        ctx.fill();
-      }
-      ctx.restore();
-    };
-
-    if (fabric.Object.prototype.controls?.mtr) {
-      fabric.Object.prototype.controls.mtr.render = renderRotationIcon;
-      fabric.Object.prototype.controls.mtr.sizeX = 24;
-      fabric.Object.prototype.controls.mtr.sizeY = 24;
-      (fabric.Object.prototype.controls.mtr as { withConnection?: boolean }).withConnection = false;
-      (fabric.Object.prototype.controls.mtr as { offsetY?: number }).offsetY = -15;
-
-    }
-    (fabric.Object.prototype as { rotatingPointOffset?: number }).rotatingPointOffset = 2;
-    canvas.setZoom(1);
-    canvas.setWidth(A4_PX.width);
-    canvas.setHeight(A4_PX.height);
-
-    canvas.on("object:added", this.pushHistory);
-    canvas.on("object:modified", this.pushHistory);
-    canvas.on("object:removed", this.pushHistory);
-    canvas.on("object:moving", this.handleObjectMoving);
-    canvas.on("object:rotating", this.handleObjectRotating);
-    canvas.on("before:render", this.handleBeforeRender);
-    canvas.on("after:render", this.handleAfterRender);
-    canvas.on("mouse:up", this.handleMouseUp);
-    this.onReady?.(true);
-
-    if (page?.fabricJSON) {
-      this.isRestoring = true;
-      canvas.loadFromJSON(page.fabricJSON, () => {
-        this.isRestoring = false;
-        this.ensureHeaderFooter();
-        canvas.renderAll();
-        this.seedHistoryFromCanvas();
-      });
-    } else {
-      this.ensureHeaderFooter();
-      this.seedHistoryFromCanvas();
-    }
-
-    window.addEventListener("keydown", this.handleDeleteKey);
-    window.addEventListener("keydown", this.handleClipboardShortcuts);
-  }
-
-  private static getRotationGlyph() {
-    if (PageCanvasController.rotationGlyph !== null) return PageCanvasController.rotationGlyph;
-    if (typeof document === "undefined") {
-      PageCanvasController.rotationGlyph = null;
-      return null;
-    }
-    const el = document.createElement("i");
-    el.className = "fa-solid fa-rotate-right";
-    el.style.position = "absolute";
-    el.style.left = "-9999px";
-    el.style.fontSize = "16px";
-    document.body.appendChild(el);
-    const content = getComputedStyle(el, "::before").getPropertyValue("content");
-    document.body.removeChild(el);
-
-    if (!content || content === "none") {
-      PageCanvasController.rotationGlyph = null;
-      return null;
-    }
-    const cleaned = content.replace(/['"]/g, "");
-    if (cleaned.startsWith("\\")) {
-      const code = cleaned.replace("\\", "");
-      const char = String.fromCharCode(parseInt(code, 16));
-      PageCanvasController.rotationGlyph = char;
-      return char;
-    }
-    PageCanvasController.rotationGlyph = cleaned;
-    return cleaned;
-  }
-
-  private seedHistoryFromCanvas = () => {
-    if (!this.canvas) return;
-    const json = JSON.stringify(this.canvas.toJSON(["data"]));
-    this.history = [json];
-    this.historyIndex = 0;
-    this.hasPageChanges = false;
+    point: null as null | { x: number; y: number }
   };
 
-  private ensureHeaderFooter() {
-    if (!this.canvas) return;
-    const headerId = "fixed-header";
-    const footerId = "fixed-footer";
-    const existingHeader = this.canvas.getObjects().find((obj) => obj.data?.id === headerId);
-    const existingFooter = this.canvas.getObjects().find((obj) => obj.data?.id === footerId);
-
-    if (existingHeader) {
-      this.canvas.remove(existingHeader);
-    }
-
-    const headerGroup = this.createHeaderGroup();
-    if (headerGroup) {
-      headerGroup.set({ data: { id: headerId } });
-      this.canvas.add(headerGroup);
-    }
-
-    if (!existingFooter) {
-      const footerIdValue = footerId;
-      fabric.Image.fromURL(
-        this.footerLogoUrl,
-        (img) => {
-          if (!img || !this.canvas) return;
-          const targetWidth = 120;
-          img.scaleToWidth(targetWidth);
-          img.set({
-            left: (this.canvas.getWidth() - img.getScaledWidth()) / 2,
-            top: this.canvas.getHeight() - img.getScaledHeight() - 20,
-            selectable: false,
-            evented: false,
-            hasControls: false,
-            lockMovementX: true,
-            lockMovementY: true,
-            lockScalingX: true,
-            lockScalingY: true,
-            lockRotation: true,
-            hoverCursor: "default"
-          });
-          img.set({ data: { id: footerIdValue } });
-          this.canvas.add(img);
-          this.canvas.requestRenderAll();
-        },
-        { crossOrigin: "anonymous" }
-      );
-    } else if (existingFooter) {
-      existingFooter.set({
-        selectable: false,
-        evented: false,
-        hasControls: false,
-        lockMovementX: true,
-        lockMovementY: true,
-        lockScalingX: true,
-        lockScalingY: true,
-        lockRotation: true,
-        hoverCursor: "default"
-      });
-    }
+  function seedHistoryFromCanvas() {
+    const json = JSON.stringify(canvas.toJSON(["data"]));
+    history = [json];
+    historyIndex = 0;
+    hasPageChanges = false;
   }
 
-  private createHeaderGroup() {
-    if (!this.canvas) return null;
-    const fontFamily = "Inter";
-    const fontSize = 16;
-    const separator = " - ";
-    const parts = [
-      { text: this.headerProjectName || "", fill: "#ea580c", fontWeight: "700" },
-      { text: separator, fill: "#64748b", fontWeight: "600" },
-      { text: this.headerText || "Modular Closets Renderings", fill: "#334155", fontWeight: "600" },
-      { text: separator, fill: "#64748b", fontWeight: "600" },
-      { text: this.headerCustomerName || "", fill: "#64748b", fontWeight: "600" }
-    ].filter((item) => item.text !== "");
-
-    if (parts.length === 0) return null;
-
-    let cursorX = 0;
-    const textObjects = parts.map((part) => {
-      const textObj = new fabric.Text(part.text, {
-        left: cursorX,
-        top: 0,
-        originX: "left",
-        originY: "top",
-        fontFamily,
-        fontSize,
-        fill: part.fill,
-        fontWeight: part.fontWeight,
-        selectable: false,
-        evented: false,
-        hasControls: false
-      });
-      cursorX += textObj.getScaledWidth();
-      return textObj;
-    });
-
-    const group = new fabric.Group(textObjects, {
-      left: 0,
-      top: 18,
-      selectable: false,
-      evented: false,
-      hasControls: false,
-      lockMovementX: true,
-      lockMovementY: true,
-      lockScalingX: true,
-      lockScalingY: true,
-      lockRotation: true,
-      hoverCursor: "default"
-    });
-
-    const canvasWidth = this.canvas.getWidth();
-    const groupWidth = group.getScaledWidth();
-    group.set({ left: (canvasWidth - groupWidth) / 2 });
-    group.setCoords();
-    return group;
-  }
-
-  private pushHistory = ({ markChange = true }: { markChange?: boolean } = {}) => {
-    if (!this.canvas || this.isRestoring) return;
-    const json = JSON.stringify(this.canvas.toJSON(["data"]));
-    const latest = this.history[this.historyIndex];
+  function pushHistory() {
+    if (isRestoring || isDisposed) return;
+    if (!currentPageId) return;
+    const json = JSON.stringify(canvas.toJSON(["data"]));
+    const latest = history[historyIndex];
     if (latest === json) return;
-    const list = this.history.slice(0, this.historyIndex + 1);
+    const list = history.slice(0, historyIndex + 1);
     list.push(json);
-    this.history = list.slice(-50);
-    this.historyIndex = this.history.length - 1;
-    if (markChange) this.hasPageChanges = true;
-    this.onPageChange(JSON.parse(json));
-  };
+    history = list.slice(-50);
+    historyIndex = history.length - 1;
+    hasPageChanges = true;
+    onPageChangeRef(currentPageId, JSON.parse(json));
+  }
 
-  private onObjectMoving(event: fabric.IEvent) {
-    if (!this.canvas) return;
-    const target = event.target as fabric.Object | undefined;
-    if (!target) return;
-
-    const pageWidth = this.canvas.getWidth();
-    const pageHeight = this.canvas.getHeight();
-    const center = target.getCenterPoint();
-    const pageCenterX = pageWidth / 2;
-    const pageCenterY = pageHeight / 2;
-
-    const snapThreshold = PageCanvasController.GUIDE_SNAP_THRESHOLD;
-    let snappedX = false;
-    let snappedY = false;
-    let centerSnappedX = false;
-    let centerSnappedY = false;
-    let alignX: number | null = null;
-    let alignY: number | null = null;
-
-    const otherObjects = this.canvas
-      .getObjects()
-      .filter((obj) => obj !== target && obj.data?.id !== "fixed-header" && obj.data?.id !== "fixed-footer");
-    const bounds = target.getBoundingRect(true, true);
-    const targetLeft = bounds.left;
-    const targetRight = bounds.left + bounds.width;
-    const targetTop = bounds.top;
-    const targetBottom = bounds.top + bounds.height;
-    const targetCenterX = bounds.left + bounds.width / 2;
-    const targetCenterY = bounds.top + bounds.height / 2;
-
-    let bestDx = snapThreshold + 1;
-    let bestDy = snapThreshold + 1;
-
-    otherObjects.forEach((obj) => {
-      const b = obj.getBoundingRect(true, true);
-      const objLeft = b.left;
-      const objRight = b.left + b.width;
-      const objTop = b.top;
-      const objBottom = b.top + b.height;
-      const objCenterX = b.left + b.width / 2;
-      const objCenterY = b.top + b.height / 2;
-
-      const xCandidates = [
-        { value: objLeft, targetValue: targetLeft },
-        { value: objRight, targetValue: targetRight },
-        { value: objCenterX, targetValue: targetCenterX }
-      ];
-      xCandidates.forEach(({ value, targetValue }) => {
-        const delta = value - targetValue;
-        if (Math.abs(delta) < Math.abs(bestDx)) {
-          bestDx = delta;
-          alignX = value;
-        }
-      });
-
-      const yCandidates = [
-        { value: objTop, targetValue: targetTop },
-        { value: objBottom, targetValue: targetBottom },
-        { value: objCenterY, targetValue: targetCenterY }
-      ];
-      yCandidates.forEach(({ value, targetValue }) => {
-        const delta = value - targetValue;
-        if (Math.abs(delta) < Math.abs(bestDy)) {
-          bestDy = delta;
-          alignY = value;
-        }
-      });
+  function ensureHeaderFooter() {
+    if (isDisposed) return;
+    isApplyingDecorations = true;
+    void applyPageDecorations(canvas, {
+      headerText,
+      headerProjectName,
+      headerCustomerName,
+      footerLogoUrl,
+      pageNumber,
+      totalPages,
+      designerEmail,
+      designerMobile
+    }).finally(() => {
+      isApplyingDecorations = false;
+      if (!isDisposed) canvas.requestRenderAll();
     });
+  }
 
-    if (Math.abs(bestDx) <= snapThreshold) {
-      target.set({ left: (target.left ?? 0) + bestDx });
-      snappedX = true;
-    } else {
-      alignX = Math.abs(bestDx) <= snapThreshold * 1.5 ? alignX : null;
-    }
-
-    if (Math.abs(bestDy) <= snapThreshold) {
-      target.set({ top: (target.top ?? 0) + bestDy });
-      snappedY = true;
-    } else {
-      alignY = Math.abs(bestDy) <= snapThreshold * 1.5 ? alignY : null;
-    }
-
-    const newCenter = target.getCenterPoint();
-    if (Math.abs(newCenter.x - pageCenterX) <= snapThreshold) {
-      target.setPositionByOrigin(new fabric.Point(pageCenterX, center.y), "center", "center");
-      centerSnappedX = true;
-    }
-    if (Math.abs(newCenter.y - pageCenterY) <= snapThreshold) {
-      const updatedCenter = target.getCenterPoint();
-      target.setPositionByOrigin(new fabric.Point(updatedCenter.x, pageCenterY), "center", "center");
-      centerSnappedY = true;
-    }
-
-    target.setCoords();
-
-    const updatedBounds = target.getBoundingRect(true, true);
-    const finalCenter = target.getCenterPoint();
-    this.guideState = {
-      active: true,
-      bounds: {
-        left: updatedBounds.left,
-        right: updatedBounds.left + updatedBounds.width,
-        top: updatedBounds.top,
-        bottom: updatedBounds.top + updatedBounds.height,
-        width: updatedBounds.width,
-        height: updatedBounds.height,
-        centerX: updatedBounds.left + updatedBounds.width / 2,
-        centerY: updatedBounds.top + updatedBounds.height / 2
+  function addDefaultImage(url: string) {
+    fabric.Image.fromURL(
+      url,
+      (img) => {
+        if (!img || isDisposed) return;
+        const margin = 40;
+        const topMargin = 100;
+        const bottomMargin = 70;
+        const maxWidth = canvas.getWidth() - margin * 2;
+        const maxHeight = canvas.getHeight() - topMargin - bottomMargin;
+        const scaleX = maxWidth / img.width!;
+        const scaleY = maxHeight / img.height!;
+        const scale = Math.min(scaleX, scaleY, 1);
+        img.scale(scale);
+        img.set({
+          left: (canvas.getWidth() - img.getScaledWidth()) / 2,
+          top: topMargin + (maxHeight - img.getScaledHeight()) / 2
+        });
+        canvas.add(img).setActiveObject(img);
+        ensureHeaderFooter();
+        if (!isDisposed) canvas.requestRenderAll();
+        pushHistory();
       },
-      showCenterX: centerSnappedX,
-      showCenterY: centerSnappedY
-    };
-    this.alignGuideState = {
-      x: snappedX ? alignX : alignX,
-      y: snappedY ? alignY : alignY
-    };
-
-    this.canvas.requestRenderAll();
+      { crossOrigin: "anonymous" }
+    );
   }
 
-  private onObjectRotating(event: fabric.IEvent) {
-    if (!this.canvas) return;
-    const target = event.target as fabric.Object | undefined;
-    if (!target) return;
-    const coords = target.oCoords?.mtr;
-    if (!coords) return;
-    this.rotationGuideState = {
-      active: true,
-      angle: target.angle ?? 0,
-      point: { x: coords.x, y: coords.y }
-    };
-    this.canvas.requestRenderAll();
+  function loadPage(nextPage?: Page) {
+    if (!nextPage || isDisposed) return;
+    if (nextPage.id === currentPageId) return;
+    currentPageId = nextPage.id;
+    isRestoring = true;
+    canvas.clear();
+    canvas.setBackgroundColor("#fff", canvas.renderAll.bind(canvas));
+    if (nextPage.fabricJSON) {
+      canvas.loadFromJSON(nextPage.fabricJSON, () => {
+        isRestoring = false;
+        ensureHeaderFooter();
+        canvas.renderAll();
+        seedHistoryFromCanvas();
+      });
+    } else {
+      isRestoring = false;
+      ensureHeaderFooter();
+      if (nextPage.defaultImageUrl) {
+        addDefaultImage(nextPage.defaultImageUrl);
+      }
+      canvas.renderAll();
+      seedHistoryFromCanvas();
+    }
   }
 
-  private clearGuides() {
-    if (!this.canvas) return;
-    if (!this.guideState.active && !this.rotationGuideState.active) return;
-    this.guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
-    this.rotationGuideState = { active: false, angle: 0, point: null };
-    this.alignGuideState = { x: null, y: null };
-    this.canvas.requestRenderAll();
+  function onDeleteKey(event: KeyboardEvent) {
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+    const target = event.target as HTMLElement | null;
+    const targetTag = target?.tagName?.toLowerCase();
+    const isTypingField =
+      target?.isContentEditable ||
+      targetTag === "input" ||
+      targetTag === "textarea" ||
+      targetTag === "select";
+    const active = canvas.getActiveObject();
+    if (isTypingField || (isTextObject(active) && active.isEditing)) return;
+    removeActiveObjects();
   }
 
-  private clearGuideLayer() {
-    if (!this.canvas) return;
-    const ctx = this.canvas.contextTop;
+  function onClipboardShortcuts(event: KeyboardEvent) {
+    const isMac = navigator.platform.toLowerCase().includes("mac");
+    const modKey = isMac ? event.metaKey : event.ctrlKey;
+    if (!modKey) return;
+    const key = event.key.toLowerCase();
+    const target = event.target as HTMLElement | null;
+    const targetTag = target?.tagName?.toLowerCase();
+    const isTypingField =
+      target?.isContentEditable ||
+      targetTag === "input" ||
+      targetTag === "textarea" ||
+      targetTag === "select";
+    const active = canvas.getActiveObject();
+    if (isTypingField || (isTextObject(active) && active.isEditing)) return;
+
+    if (key === "c") {
+      event.preventDefault();
+      clipboard = null;
+      const activeObj = canvas.getActiveObject();
+      if (isDecorationId(activeObj?.data?.id)) return;
+      if (activeObj) {
+        activeObj.clone((cloned) => {
+          clipboard = cloned;
+        });
+      }
+    }
+
+    if (key === "x") {
+      event.preventDefault();
+      const activeObj = canvas.getActiveObject();
+      if (isDecorationId(activeObj?.data?.id)) return;
+      if (activeObj) {
+        activeObj.clone((cloned) => {
+          clipboard = cloned;
+          removeActiveObjects();
+        });
+      }
+    }
+
+    if (key === "v") {
+      event.preventDefault();
+      if (!clipboard) return;
+      clipboard.clone((clonedObj) => {
+        canvas.discardActiveObject();
+        clonedObj.set({ left: (clonedObj.left || 0) + 12, top: (clonedObj.top || 0) + 12, evented: true });
+        if (clonedObj.type === "activeSelection") {
+          clonedObj.canvas = canvas;
+          clonedObj.forEachObject((obj) => canvas.add(obj));
+          clonedObj.setCoords();
+        } else {
+          canvas.add(clonedObj);
+        }
+        clipboard = clonedObj;
+        canvas.setActiveObject(clonedObj);
+        canvas.requestRenderAll();
+        pushHistory();
+      });
+    }
+  }
+
+  function removeActiveObjects() {
+    const activeObjects = canvas.getActiveObjects();
+    if (activeObjects.length > 0) {
+      canvas.discardActiveObject();
+      let removed = false;
+      activeObjects.forEach((obj) => {
+        if (isDecorationId(obj.data?.id)) return;
+        canvas.remove(obj);
+        removed = true;
+      });
+      if (removed) {
+        canvas.requestRenderAll();
+        pushHistory();
+      }
+      return;
+    }
+    const activeObject = canvas.getActiveObject();
+    if (activeObject && !isDecorationId(activeObject.data?.id)) {
+      canvas.discardActiveObject();
+      canvas.remove(activeObject);
+      canvas.requestRenderAll();
+      pushHistory();
+    }
+  }
+
+  function clearGuides() {
+    guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
+    rotationGuideState = { active: false, angle: 0, point: null };
+    alignGuideState = { x: null, y: null };
+    if (!isDisposed) canvas.requestRenderAll();
+  }
+
+  function clearGuideLayer() {
+    const ctx = canvas.contextTop;
     if (!ctx) return;
-    this.canvas.clearContext(ctx);
+    canvas.clearContext(ctx);
   }
 
-  private renderGuides() {
-    if (!this.canvas) return;
-    const ctx = this.canvas.contextTop;
+  function renderGuides() {
+    const ctx = canvas.contextTop;
     if (!ctx) return;
-    const shouldRenderGuides = this.guideState.active && this.guideState.bounds;
-    const shouldRenderRotation = this.rotationGuideState.active && this.rotationGuideState.point;
-    if (!shouldRenderGuides && !shouldRenderRotation) return;
 
-    const pageWidth = this.canvas.getWidth();
-    const pageHeight = this.canvas.getHeight();
+    const shouldRenderGuides = guideState.active && guideState.bounds;
+    const shouldRenderRotation = rotationGuideState.active && rotationGuideState.point;
+    if (!shouldRenderGuides && !shouldRenderRotation && !alignGuideState.x && !alignGuideState.y) return;
+
+    const pageWidth = canvas.getWidth();
+    const pageHeight = canvas.getHeight();
 
     const lineColor = "#2563eb";
     const accentColor = "#0f172a";
@@ -681,9 +416,9 @@ export class PageCanvasController {
       ctx.restore();
     };
 
-    const suppressMeasurements = this.alignGuideState.x !== null || this.alignGuideState.y !== null;
-    if (shouldRenderGuides && this.guideState.bounds && !suppressMeasurements) {
-      const { bounds, showCenterX, showCenterY } = this.guideState;
+    const suppressMeasurements = alignGuideState.x !== null || alignGuideState.y !== null;
+    if (shouldRenderGuides && guideState.bounds && !suppressMeasurements) {
+      const { bounds, showCenterX, showCenterY } = guideState;
       const leftDistance = Math.max(0, Math.round(bounds.left));
       const rightDistance = Math.max(0, Math.round(pageWidth - bounds.right));
       const topDistance = Math.max(0, Math.round(bounds.top));
@@ -713,327 +448,418 @@ export class PageCanvasController {
       ctx.restore();
     }
 
-    if (shouldRenderRotation && this.rotationGuideState.point) {
-      const { angle, point } = this.rotationGuideState;
+    if (shouldRenderRotation && rotationGuideState.point) {
+      const { angle, point } = rotationGuideState;
       const normalized = ((Math.round(angle) % 360) + 360) % 360;
-      const label = `${normalized}°`;
-      drawLabel(label, point.x, point.y - 18);
+      drawLabel(`${normalized}°`, point.x, point.y - 18);
     }
 
-    if (this.alignGuideState.x !== null || this.alignGuideState.y !== null) {
+    if (alignGuideState.x !== null || alignGuideState.y !== null) {
       ctx.save();
       ctx.strokeStyle = "#16a34a";
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
-      if (this.alignGuideState.x !== null) {
+      if (alignGuideState.x !== null) {
         ctx.beginPath();
-        ctx.moveTo(this.alignGuideState.x, 0);
-        ctx.lineTo(this.alignGuideState.x, pageHeight);
+        ctx.moveTo(alignGuideState.x, 0);
+        ctx.lineTo(alignGuideState.x, pageHeight);
         ctx.stroke();
       }
-      if (this.alignGuideState.y !== null) {
+      if (alignGuideState.y !== null) {
         ctx.beginPath();
-        ctx.moveTo(0, this.alignGuideState.y);
-        ctx.lineTo(pageWidth, this.alignGuideState.y);
+        ctx.moveTo(0, alignGuideState.y);
+        ctx.lineTo(pageWidth, alignGuideState.y);
         ctx.stroke();
       }
       ctx.restore();
     }
   }
 
-  private removeActiveObjects() {
-    if (!this.canvas) return false;
-    const activeObjects = this.canvas.getActiveObjects();
-    if (activeObjects.length > 0) {
-      this.canvas.discardActiveObject();
-      activeObjects.forEach((obj) => this.canvas?.remove(obj));
-      this.canvas.requestRenderAll();
-      this.pushHistory();
-      return true;
-    }
-    const activeObject = this.canvas.getActiveObject();
-    if (activeObject) {
-      this.canvas.discardActiveObject();
-      this.canvas.remove(activeObject);
-      this.canvas.requestRenderAll();
-      this.pushHistory();
-      return true;
-    }
-    return false;
-  }
+  function onObjectMoving(event: fabric.IEvent) {
+    const target = event.target as fabric.Object | undefined;
+    if (!target) return;
 
-  private onDeleteKey(event: KeyboardEvent) {
-    if (event.key !== "Delete" && event.key !== "Backspace") return;
-    const target = event.target as HTMLElement | null;
-    const targetTag = target?.tagName?.toLowerCase();
-    const isTypingField =
-      target?.isContentEditable ||
-      targetTag === "input" ||
-      targetTag === "textarea" ||
-      targetTag === "select";
-    const active = this.canvas?.getActiveObject();
-    if (isTypingField || (isTextObject(active) && active.isEditing)) return;
-    if (this.removeActiveObjects()) event.preventDefault();
-  }
+    const pageWidth = canvas.getWidth();
+    const pageHeight = canvas.getHeight();
+    const center = target.getCenterPoint();
+    const pageCenterX = pageWidth / 2;
+    const pageCenterY = pageHeight / 2;
 
-  private onClipboardShortcuts(event: KeyboardEvent) {
-    const isMac = navigator.platform.toLowerCase().includes("mac");
-    const modKey = isMac ? event.metaKey : event.ctrlKey;
-    if (!modKey) return;
-    const key = event.key.toLowerCase();
-    const target = event.target as HTMLElement | null;
-    const targetTag = target?.tagName?.toLowerCase();
-    const isTypingField =
-      target?.isContentEditable ||
-      targetTag === "input" ||
-      targetTag === "textarea" ||
-      targetTag === "select";
-    const active = this.canvas?.getActiveObject();
-    if (isTypingField || (isTextObject(active) && active.isEditing)) return;
+    let snappedX = false;
+    let snappedY = false;
+    let centerSnappedX = false;
+    let centerSnappedY = false;
+    let alignX: number | null = null;
+    let alignY: number | null = null;
 
-    if (key === "c") {
-      event.preventDefault();
-      this.clipboard = null;
-      const activeObj = this.canvas?.getActiveObject();
-      if (activeObj) {
-        activeObj.clone((cloned) => {
-          this.clipboard = cloned;
-        });
-      }
-    }
+    const otherObjects = canvas
+      .getObjects()
+      .filter((obj) => obj !== target && !isDecorationId(obj.data?.id));
 
-    if (key === "x") {
-      event.preventDefault();
-      const activeObj = this.canvas?.getActiveObject();
-      if (activeObj) {
-        activeObj.clone((cloned) => {
-          this.clipboard = cloned;
-          this.removeActiveObjects();
-        });
-      }
-    }
+    const bounds = target.getBoundingRect(true, true);
+    const targetLeft = bounds.left;
+    const targetRight = bounds.left + bounds.width;
+    const targetTop = bounds.top;
+    const targetBottom = bounds.top + bounds.height;
+    const targetCenterX = bounds.left + bounds.width / 2;
+    const targetCenterY = bounds.top + bounds.height / 2;
 
-    if (key === "v") {
-      event.preventDefault();
-      if (!this.clipboard || !this.canvas) return;
-      this.clipboard.clone((clonedObj) => {
-        this.canvas?.discardActiveObject();
-        clonedObj.set({ left: (clonedObj.left || 0) + 12, top: (clonedObj.top || 0) + 12, evented: true });
-        if (clonedObj.type === "activeSelection") {
-          clonedObj.canvas = this.canvas;
-          clonedObj.forEachObject((obj) => this.canvas?.add(obj));
-          clonedObj.setCoords();
-        } else {
-          this.canvas?.add(clonedObj);
+    let bestDx = GUIDE_SNAP_THRESHOLD + 1;
+    let bestDy = GUIDE_SNAP_THRESHOLD + 1;
+
+    otherObjects.forEach((obj) => {
+      const b = obj.getBoundingRect(true, true);
+      const objLeft = b.left;
+      const objRight = b.left + b.width;
+      const objTop = b.top;
+      const objBottom = b.top + b.height;
+      const objCenterX = b.left + b.width / 2;
+      const objCenterY = b.top + b.height / 2;
+
+      const xCandidates = [
+        { value: objLeft, targetValue: targetLeft },
+        { value: objRight, targetValue: targetRight },
+        { value: objCenterX, targetValue: targetCenterX }
+      ];
+      xCandidates.forEach(({ value, targetValue }) => {
+        const delta = value - targetValue;
+        if (Math.abs(delta) < Math.abs(bestDx)) {
+          bestDx = delta;
+          alignX = value;
         }
-        this.clipboard = clonedObj;
-        this.canvas?.setActiveObject(clonedObj);
-        this.canvas?.requestRenderAll();
-        this.pushHistory();
       });
-    }
-  }
 
-  private addText() {
-    if (!this.canvas) return;
-    const text = new fabric.IText("Editable text", {
-      left: 64,
-      top: 64,
-      ...this.defaultTextStyle
+      const yCandidates = [
+        { value: objTop, targetValue: targetTop },
+        { value: objBottom, targetValue: targetBottom },
+        { value: objCenterY, targetValue: targetCenterY }
+      ];
+      yCandidates.forEach(({ value, targetValue }) => {
+        const delta = value - targetValue;
+        if (Math.abs(delta) < Math.abs(bestDy)) {
+          bestDy = delta;
+          alignY = value;
+        }
+      });
     });
-    this.canvas.add(text).setActiveObject(text);
-    this.canvas.requestRenderAll();
-    this.pushHistory();
-  }
 
-  private setTextStyle(style: { fontWeight?: string; fontStyle?: string; underline?: boolean; fill?: string; fontSize?: number }) {
-    if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
-    let changedCanvas = false;
-
-    if (style.fill) this.defaultTextStyle.fill = style.fill;
-    if (style.fontSize) this.defaultTextStyle.fontSize = Number(style.fontSize) || 20;
-    if (style.fontWeight) {
-      this.defaultTextStyle.fontWeight = this.defaultTextStyle.fontWeight === "bold" ? "normal" : "bold";
-    }
-    if (style.fontStyle) {
-      this.defaultTextStyle.fontStyle = this.defaultTextStyle.fontStyle === "italic" ? "normal" : "italic";
-    }
-    if (style.underline) {
-      this.defaultTextStyle.underline = !this.defaultTextStyle.underline;
+    if (Math.abs(bestDx) <= GUIDE_SNAP_THRESHOLD) {
+      target.set({ left: (target.left ?? 0) + bestDx });
+      snappedX = true;
+    } else {
+      alignX = Math.abs(bestDx) <= GUIDE_SNAP_THRESHOLD * 1.5 ? alignX : null;
     }
 
-    const applyStyle = (obj: fabric.Object | null | undefined) => {
-      if (!isTextObject(obj)) return;
-      changedCanvas = true;
-      if (style.fontWeight) {
-        obj.set({ fontWeight: obj.fontWeight === "bold" ? "normal" : "bold" });
-      }
-      if (style.fontStyle) {
-        obj.set({ fontStyle: obj.fontStyle === "italic" ? "normal" : "italic" });
-      }
-      if (style.underline) {
-        obj.set({ underline: !obj.underline });
-      }
-      if (style.fill) obj.set({ fill: style.fill });
-      if (style.fontSize) obj.set({ fontSize: Number(style.fontSize) || 20 });
+    if (Math.abs(bestDy) <= GUIDE_SNAP_THRESHOLD) {
+      target.set({ top: (target.top ?? 0) + bestDy });
+      snappedY = true;
+    } else {
+      alignY = Math.abs(bestDy) <= GUIDE_SNAP_THRESHOLD * 1.5 ? alignY : null;
+    }
+
+    const newCenter = target.getCenterPoint();
+    if (Math.abs(newCenter.x - pageCenterX) <= GUIDE_SNAP_THRESHOLD) {
+      target.setPositionByOrigin(new fabric.Point(pageCenterX, center.y), "center", "center");
+      centerSnappedX = true;
+    }
+    if (Math.abs(newCenter.y - pageCenterY) <= GUIDE_SNAP_THRESHOLD) {
+      const updatedCenter = target.getCenterPoint();
+      target.setPositionByOrigin(new fabric.Point(updatedCenter.x, pageCenterY), "center", "center");
+      centerSnappedY = true;
+    }
+
+    target.setCoords();
+
+    const updatedBounds = target.getBoundingRect(true, true);
+    guideState = {
+      active: true,
+      bounds: {
+        left: updatedBounds.left,
+        right: updatedBounds.left + updatedBounds.width,
+        top: updatedBounds.top,
+        bottom: updatedBounds.top + updatedBounds.height,
+        width: updatedBounds.width,
+        height: updatedBounds.height,
+        centerX: updatedBounds.left + updatedBounds.width / 2,
+        centerY: updatedBounds.top + updatedBounds.height / 2
+      },
+      showCenterX: centerSnappedX,
+      showCenterY: centerSnappedY
     };
 
-    if (active?.type === "activeSelection") {
-      active.getObjects().forEach((obj) => applyStyle(obj));
-    } else {
-      applyStyle(active);
-      if (active && active.type === "i-text" && active.isEditing && style.fill) {
-        active.setSelectionStyles({ fill: style.fill });
-      }
+    alignGuideState = { x: alignX, y: alignY };
+    if (snappedX || snappedY) {
+      alignGuideState = { x: alignX, y: alignY };
     }
 
-    this.canvas.requestRenderAll();
-    if (active) active.setCoords();
-    if (changedCanvas) this.pushHistory();
+    canvas.requestRenderAll();
   }
 
-  private setTextAlign(align: "left" | "center" | "right" | "justify") {
-    if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
-    if (!isTextObject(active)) return;
-    active.set({ textAlign: align });
-    this.canvas.requestRenderAll();
-    this.pushHistory();
+  function onObjectRotating(event: fabric.IEvent) {
+    const target = event.target as fabric.Object | undefined;
+    if (!target) return;
+    const coords = target.oCoords?.mtr;
+    if (!coords) return;
+    rotationGuideState = {
+      active: true,
+      angle: target.angle ?? 0,
+      point: { x: coords.x, y: coords.y }
+    };
+    canvas.requestRenderAll();
   }
 
-  private alignObjects(align: "left" | "center" | "right") {
-    if (!this.canvas) return;
-    const margin = 64;
-    const pageWidth = this.canvas.getWidth();
-    const selected = this.canvas.getActiveObjects();
-    const targets = selected.length > 0 ? selected : this.canvas.getObjects();
+  const onCanvasChanged = (event: fabric.IEvent) => {
+    const target = event.target as fabric.Object | undefined;
+    const objectId = target?.data?.id;
+    if (isApplyingDecorations) return;
+    if (isLockedDecorationId(objectId)) return;
+    pushHistory();
+  };
 
-    targets.forEach((obj) => {
-      const width = obj.getScaledWidth();
-      let left = obj.left ?? 0;
-      if (align === "left") left = margin;
-      if (align === "center") left = (pageWidth - width) / 2;
-      if (align === "right") left = pageWidth - width - margin;
-      obj.set({ left });
-      if (isTextObject(obj)) {
-        obj.set({ textAlign: align });
-      }
-      obj.setCoords();
+  canvas.on("object:added", onCanvasChanged);
+  canvas.on("object:modified", onCanvasChanged);
+  canvas.on("object:removed", onCanvasChanged);
+  canvas.on("object:moving", onObjectMoving);
+  canvas.on("object:rotating", onObjectRotating);
+  canvas.on("before:render", clearGuideLayer);
+  canvas.on("after:render", renderGuides);
+  canvas.on("mouse:up", clearGuides);
+
+  onReadyRef?.(true);
+
+  if (page?.fabricJSON) {
+    isRestoring = true;
+    canvas.loadFromJSON(page.fabricJSON, () => {
+      isRestoring = false;
+      ensureHeaderFooter();
+      canvas.renderAll();
+      seedHistoryFromCanvas();
     });
-
-    this.canvas.requestRenderAll();
-    this.pushHistory();
+  } else {
+    ensureHeaderFooter();
+    if (page?.defaultImageUrl) {
+      addDefaultImage(page.defaultImageUrl);
+    }
+    seedHistoryFromCanvas();
   }
 
-  private addPlaceholder(key: string) {
-    if (!this.canvas) return;
-    const item = new fabric.IText(key, {
-      left: 64,
-      top: 120,
-      fill: "#ea580c",
-      fontSize: 20,
-      fontFamily: "Georgia",
-      fontStyle: "italic"
-    });
-    this.canvas.add(item).setActiveObject(item);
-  }
+  window.addEventListener("keydown", onDeleteKey);
+  window.addEventListener("keydown", onClipboardShortcuts);
 
-  private addBOMTable(rows: Array<{ sku: string; name: string; qty: number; price: number }>) {
-    if (!this.canvas) return;
-    const text = new fabric.Textbox(createBOMText(rows), {
-      left: 64,
-      top: 260,
-      width: 660,
-      fontFamily: "Courier New",
-      fontSize: 14,
-      lineHeight: 1.3,
-      fill: "#1f2937"
-    });
-    this.canvas.add(text).setActiveObject(text);
-  }
+  const handle: FabricCanvasHandle = {
+    addText() {
+      const text = new fabric.IText("Editable text", {
+        left: 64,
+        top: 64,
+        fill: "#1f2937",
+        fontSize: 24,
+        fontFamily: "Georgia",
+        fontWeight: "normal",
+        fontStyle: "normal",
+        underline: false
+      });
+      canvas.add(text).setActiveObject(text);
+      canvas.requestRenderAll();
+      pushHistory();
+    },
+    setTextStyle(style) {
+      const active = canvas.getActiveObject();
+      let changedCanvas = false;
 
-  private addImage(dataUrl: string) {
-    fabric.Image.fromURL(
-      dataUrl,
-      (img) => {
-        if (!img) return;
-        if (!this.canvas) return;
-        img.scaleToWidth(300);
-        img.set({ left: 64, top: 360 });
-        this.canvas.add(img).setActiveObject(img);
-        this.canvas.requestRenderAll();
-        this.pushHistory();
-      },
-      { crossOrigin: "anonymous" }
-    );
-  }
+      const applyStyle = (obj: fabric.Object | null | undefined) => {
+        if (!isTextObject(obj)) return;
+        changedCanvas = true;
+        if (style.fontWeight) {
+          obj.set({ fontWeight: obj.fontWeight === "bold" ? "normal" : "bold" });
+        }
+        if (style.fontStyle) {
+          obj.set({ fontStyle: obj.fontStyle === "italic" ? "normal" : "italic" });
+        }
+        if (style.underline) {
+          obj.set({ underline: !obj.underline });
+        }
+        if (style.fill) obj.set({ fill: style.fill });
+        if (style.fontSize) obj.set({ fontSize: Number(style.fontSize) || 20 });
+      };
 
-  private copy() {
-    if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
-    if (!active) return;
-    active.clone((cloned) => {
-      this.clipboard = cloned;
-    });
-  }
-
-  private paste() {
-    if (!this.canvas || !this.clipboard) return;
-    this.clipboard.clone((clonedObj) => {
-      this.canvas?.discardActiveObject();
-      clonedObj.set({ left: (clonedObj.left || 0) + 12, top: (clonedObj.top || 0) + 12, evented: true });
-      if (clonedObj.type === "activeSelection") {
-        clonedObj.canvas = this.canvas;
-        clonedObj.forEachObject((obj) => this.canvas?.add(obj));
-        clonedObj.setCoords();
+      if (active?.type === "activeSelection") {
+        active.getObjects().forEach((obj) => applyStyle(obj));
       } else {
-        this.canvas?.add(clonedObj);
+        applyStyle(active);
+        if (active && active.type === "i-text" && active.isEditing && style.fill) {
+          active.setSelectionStyles({ fill: style.fill });
+        }
       }
-      this.clipboard = clonedObj;
-      this.canvas?.setActiveObject(clonedObj);
-      this.canvas?.requestRenderAll();
-    });
-  }
 
-  private duplicate() {
-    this.copy();
-    this.paste();
-  }
+      canvas.requestRenderAll();
+      if (active) active.setCoords();
+      if (changedCanvas) pushHistory();
+    },
+    setTextAlign(align) {
+      const active = canvas.getActiveObject();
+      if (!isTextObject(active)) return;
+      active.set({ textAlign: align });
+      canvas.requestRenderAll();
+      pushHistory();
+    },
+    alignObjects(align) {
+      const margin = 64;
+      const pageWidth = canvas.getWidth();
+      const selected = canvas.getActiveObjects();
+      const targets = selected.length > 0 ? selected : canvas.getObjects();
 
-  private undo() {
-    if (!this.canvas) return;
-    if (!this.hasPageChanges) return;
-    if (this.historyIndex <= 0) return;
-    this.historyIndex -= 1;
-    this.isRestoring = true;
-    this.canvas.loadFromJSON(JSON.parse(this.history[this.historyIndex]), () => {
-      this.isRestoring = false;
-      this.canvas?.renderAll();
-    });
-    if (this.historyIndex === 0) this.hasPageChanges = false;
-    this.onPageChange(JSON.parse(this.history[this.historyIndex]));
-  }
+      targets.forEach((obj) => {
+        const width = obj.getScaledWidth();
+        let left = obj.left ?? 0;
+        if (align === "left") left = margin;
+        if (align === "center") left = (pageWidth - width) / 2;
+        if (align === "right") left = pageWidth - width - margin;
+        obj.set({ left });
+        if (isTextObject(obj)) {
+          obj.set({ textAlign: align });
+        }
+        obj.setCoords();
+      });
 
-  private redo() {
-    if (!this.canvas) return;
-    if (this.historyIndex >= this.history.length - 1) return;
-    this.historyIndex += 1;
-    this.isRestoring = true;
-    this.canvas.loadFromJSON(JSON.parse(this.history[this.historyIndex]), () => {
-      this.isRestoring = false;
-      this.canvas?.renderAll();
-    });
-    this.hasPageChanges = this.historyIndex > 0;
-    this.onPageChange(JSON.parse(this.history[this.historyIndex]));
-  }
+      canvas.requestRenderAll();
+      pushHistory();
+    },
+    addPlaceholder(key) {
+      const item = new fabric.IText(key, {
+        left: 64,
+        top: 120,
+        fill: "#ea580c",
+        fontSize: 20,
+        fontFamily: "Georgia",
+        fontStyle: "italic"
+      });
+      canvas.add(item).setActiveObject(item);
+    },
+    addBOMTable(rows) {
+      const text = new fabric.Textbox(createBOMText(rows), {
+        left: 64,
+        top: 260,
+        width: 660,
+        fontFamily: "Courier New",
+        fontSize: 14,
+        lineHeight: 1.3,
+        fill: "#1f2937"
+      });
+      canvas.add(text).setActiveObject(text);
+    },
+    addImage(dataUrl) {
+      fabric.Image.fromURL(
+        dataUrl,
+        (img) => {
+          if (!img) return;
+          img.scaleToWidth(300);
+          img.set({ left: 64, top: 360 });
+          canvas.add(img).setActiveObject(img);
+          canvas.requestRenderAll();
+          pushHistory();
+        },
+        { crossOrigin: "anonymous" }
+      );
+    },
+    copy() {
+      const active = canvas.getActiveObject();
+      if (!active) return;
+      if (isDecorationId(active.data?.id)) return;
+      active.clone((cloned) => {
+        clipboard = cloned;
+      });
+    },
+    paste() {
+      if (!clipboard) return;
+      clipboard.clone((clonedObj) => {
+        canvas.discardActiveObject();
+        clonedObj.set({ left: (clonedObj.left || 0) + 12, top: (clonedObj.top || 0) + 12, evented: true });
+        if (clonedObj.type === "activeSelection") {
+          clonedObj.canvas = canvas;
+          clonedObj.forEachObject((obj) => canvas.add(obj));
+          clonedObj.setCoords();
+        } else {
+          canvas.add(clonedObj);
+        }
+        clipboard = clonedObj;
+        canvas.setActiveObject(clonedObj);
+        canvas.requestRenderAll();
+        pushHistory();
+      });
+    },
+    duplicate() {
+      handle.copy();
+      handle.paste();
+    },
+    undo() {
+      if (!hasPageChanges) return;
+      if (historyIndex <= 0) return;
+      historyIndex -= 1;
+      isRestoring = true;
+      canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
+        isRestoring = false;
+        canvas.renderAll();
+      });
+      if (historyIndex === 0) hasPageChanges = false;
+      if (currentPageId) onPageChangeRef(currentPageId, JSON.parse(history[historyIndex]));
+    },
+    redo() {
+      if (historyIndex >= history.length - 1) return;
+      historyIndex += 1;
+      isRestoring = true;
+      canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
+        isRestoring = false;
+        canvas.renderAll();
+      });
+      hasPageChanges = historyIndex > 0;
+      if (currentPageId) onPageChangeRef(currentPageId, JSON.parse(history[historyIndex]));
+    },
+    deleteActive() {
+      removeActiveObjects();
+    },
+    async getPageImage() {
+      return canvas.toDataURL({ multiplier: 2, format: "png" });
+    }
+  };
 
-  private deleteActive() {
-    this.removeActiveObjects();
-  }
-
-  private async getPageImage() {
-    if (!this.canvas) return "";
-    return this.canvas.toDataURL({ multiplier: 2, format: "png" });
-  }
+  return {
+    handle,
+    loadPage,
+    setCallbacks(nextOnPageChange: (pageId: string, json: FabricJSON) => void, nextOnReady?: (ready: boolean) => void) {
+      onPageChangeRef = nextOnPageChange;
+      onReadyRef = nextOnReady;
+    },
+    setHeaderFooter(next: {
+      headerText?: string;
+      headerProjectName?: string;
+      headerCustomerName?: string;
+      footerLogoUrl?: string;
+      pageNumber?: number;
+      totalPages?: number;
+      designerEmail?: string;
+      designerMobile?: string;
+    }) {
+      if (typeof next.headerText === "string") headerText = next.headerText;
+      if (typeof next.headerProjectName === "string") headerProjectName = next.headerProjectName;
+      if (typeof next.headerCustomerName === "string") headerCustomerName = next.headerCustomerName;
+      if (typeof next.footerLogoUrl === "string") footerLogoUrl = next.footerLogoUrl;
+      if (typeof next.pageNumber === "number") pageNumber = next.pageNumber;
+      if (typeof next.totalPages === "number") totalPages = next.totalPages;
+      if (typeof next.designerEmail === "string") designerEmail = next.designerEmail;
+      if (typeof next.designerMobile === "string") designerMobile = next.designerMobile;
+      ensureHeaderFooter();
+      if (!isDisposed) canvas.requestRenderAll();
+    },
+    dispose() {
+      isDisposed = true;
+      window.removeEventListener("keydown", onDeleteKey);
+      window.removeEventListener("keydown", onClipboardShortcuts);
+      canvas.dispose();
+      onReadyRef?.(false);
+    }
+  };
 }
+
+
+
+

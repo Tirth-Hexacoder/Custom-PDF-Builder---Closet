@@ -6,11 +6,23 @@ export const ExportTab = observer(function ExportTab() {
   const store = useStore();
 
   const exportPDF = async () => {
-    await exportPagesAsPdf(store.pages);
+    await exportPagesAsPdf(store.pages, {
+      headerText: "Modular Closets Renderings",
+      headerProjectName: store.projectName,
+      headerCustomerName: store.customerName,
+      designerEmail: store.designerEmail,
+      designerMobile: store.mobileNo
+    });
   };
 
   const exportImages = async () => {
-    await exportPagesAsImages(store.pages);
+    await exportPagesAsImages(store.pages, {
+      headerText: "Modular Closets Renderings",
+      headerProjectName: store.projectName,
+      headerCustomerName: store.customerName,
+      designerEmail: store.designerEmail,
+      designerMobile: store.mobileNo
+    });
   };
 
   return (

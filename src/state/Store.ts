@@ -1,34 +1,7 @@
 import { makeAutoObservable } from "mobx";
 import userData from "../data/userData.json";
-
-export type FabricJSON = Record<string, unknown> | null;
-
-export type Page = {
-  id: string;
-  name: string;
-  fabricJSON: FabricJSON;
-};
-
-export type PendingCapture = {
-  id: string;
-  dataUrl: string;
-};
-
-export type ProjectImage = {
-  id: string;
-  projectId: string;
-  url: string;
-};
-
-type UserRecord = {
-  projectId: string;
-  projectName: string;
-  customerName: string;
-  designerEmail: string;
-  date: string;
-  mobileNo: string;
-  images: ProjectImage[];
-};
+import imageList from "../data/imageList.json";
+import type { FabricJSON, Page, PendingCapture, ProjectImage, UserRecord } from "../types";
 
 export class Store {
   projectId = "";
@@ -39,14 +12,34 @@ export class Store {
   mobileNo = "";
   images: ProjectImage[] = [];
 
-  pages: Page[] = [{ id: crypto.randomUUID(), name: "Page 1", fabricJSON: null }];
+  pages: Page[] = [];
   activePageId: string | null = null;
   pendingCaptures: PendingCapture[] = [];
 
   constructor() {
     makeAutoObservable(this);
     this.loadUser();
+    this.setupDefaultPages();
     this.activePageId = this.pages[0].id;
+  }
+
+  setupDefaultPages() {
+    const images = this.getDefaultImageUrls();
+    if (images.length === 0) {
+      this.pages = [{ id: crypto.randomUUID(), name: "Page 1", fabricJSON: null }];
+      return;
+    }
+    this.pages = images.map((url, index) => ({
+      id: crypto.randomUUID(),
+      name: `Page ${index + 1}`,
+      fabricJSON: null,
+      defaultImageUrl: url
+    }));
+
+  }
+
+  getDefaultImageUrls() {
+    return imageList as string[];
   }
 
   loadUser() {
@@ -73,7 +66,9 @@ export class Store {
   setPageFabricJSON(pageId: string | null | undefined, json: FabricJSON) {
     if (!pageId) return;
     const idx = this.pages.findIndex((p) => p.id === pageId);
-    if (idx >= 0) this.pages[idx].fabricJSON = json;
+    if (idx >= 0) {
+      this.pages[idx].fabricJSON = json ? JSON.parse(JSON.stringify(json)) : null;
+    }
   }
 
   addPage(copyOfActive = false) {
@@ -81,7 +76,7 @@ export class Store {
     const page: Page = {
       id: crypto.randomUUID(),
       name: `Page ${this.pages.length + 1}`,
-      fabricJSON: copyOfActive && active ? active.fabricJSON : null
+      fabricJSON: copyOfActive && active?.fabricJSON ? JSON.parse(JSON.stringify(active.fabricJSON)) : null
     };
     this.pages.push(page);
     this.activePageId = page.id;

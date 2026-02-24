@@ -1,29 +1,29 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import type { FabricJSON, Page } from "../../state/Store";
-import { PageCanvasController, type FabricCanvasHandle } from "../../utils/pageUtils";
-
-export type { FabricCanvasHandle } from "../../utils/pageUtils";
-
-export type FabricCanvasProps = {
-  page?: Page;
-  onPageChange: (json: FabricJSON) => void;
-  onReady?: (ready: boolean) => void;
-  headerText?: string;
-  headerProjectName?: string;
-  headerCustomerName?: string;
-  footerLogoUrl?: string;
-};
+import type { FabricCanvasHandle, FabricCanvasProps } from "../../types";
+import { createPageCanvas } from "../../utils/pageUtils";
 
 export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(function FabricCanvas(
-  { page, onPageChange, onReady, headerText, headerProjectName, headerCustomerName, footerLogoUrl },
+  {
+    page,
+    onPageChange,
+    onReady,
+    headerText,
+    headerProjectName,
+    headerCustomerName,
+    footerLogoUrl,
+    pageNumber,
+    totalPages,
+    designerEmail,
+    designerMobile
+  },
   ref
 ) {
   const hostRef = useRef<HTMLCanvasElement | null>(null);
-  const controllerRef = useRef<PageCanvasController | null>(null);
+  const apiRef = useRef<ReturnType<typeof createPageCanvas> | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
-    controllerRef.current = new PageCanvasController({
+    apiRef.current = createPageCanvas({
       host: hostRef.current,
       page,
       onPageChange,
@@ -31,33 +31,50 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
       headerText,
       headerProjectName,
       headerCustomerName,
-      footerLogoUrl
+      footerLogoUrl,
+      pageNumber,
+      totalPages,
+      designerEmail,
+      designerMobile
     });
     return () => {
-      controllerRef.current?.dispose();
-      controllerRef.current = null;
+      apiRef.current?.dispose();
+      apiRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (!page) return;
-    controllerRef.current?.loadPage(page);
-  }, [page?.id]);
-
-  useEffect(() => {
-    controllerRef.current?.setCallbacks(onPageChange, onReady);
+    apiRef.current?.setCallbacks(onPageChange, onReady);
   }, [onPageChange, onReady]);
 
   useEffect(() => {
-    controllerRef.current?.setHeaderFooter({
+    apiRef.current?.setHeaderFooter({
       headerText,
       headerProjectName,
       headerCustomerName,
-      footerLogoUrl
+      footerLogoUrl,
+      pageNumber,
+      totalPages,
+      designerEmail,
+      designerMobile
     });
-  }, [headerText, headerProjectName, headerCustomerName, footerLogoUrl]);
+  }, [
+    headerText,
+    headerProjectName,
+    headerCustomerName,
+    footerLogoUrl,
+    pageNumber,
+    totalPages,
+    designerEmail,
+    designerMobile
+  ]);
 
-  useImperativeHandle(ref, () => controllerRef.current?.getHandle() ?? ({} as FabricCanvasHandle));
+  useEffect(() => {
+    if (!page) return;
+    apiRef.current?.loadPage(page);
+  }, [page?.id]);
+
+  useImperativeHandle(ref, () => apiRef.current?.handle ?? ({} as FabricCanvasHandle));
 
   return <canvas ref={hostRef} />;
 });
