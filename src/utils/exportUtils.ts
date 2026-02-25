@@ -7,6 +7,10 @@ import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./page
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
 
+function setWhiteBackground(canvas: fabric.StaticCanvas) {
+  canvas.setBackgroundColor("#ffffff", () => undefined);
+}
+
 // Add Image and Fit Inside a Page
 function fitImageToPage(img: fabric.Image, canvas: fabric.StaticCanvas) {
   const margin = 40;
@@ -37,11 +41,13 @@ function toDataUrl(canvas: fabric.StaticCanvas, options: RenderImageOptions) {
 // Creates a Fabric Static Canvas (Page)
 function createExportCanvas() {
   const el = document.createElement("canvas");
-  return new fabric.StaticCanvas(el, {
+  const canvas = new fabric.StaticCanvas(el, {
     width: A4_PX.width,
     height: A4_PX.height,
     backgroundColor: "#ffffff"
   });
+  setWhiteBackground(canvas);
+  return canvas;
 }
 
 // Loads Data From Fabric JSON OR Adds Image To a Page
@@ -52,6 +58,7 @@ async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
     await new Promise<void>((resolve) => {
       canvas.loadFromJSON(page.fabricJSON, () => resolve());
     });
+    setWhiteBackground(canvas);
   } else if (page.defaultImageUrl) {
     await new Promise<void>((resolve) => {
       fabric.Image.fromURL(
@@ -69,6 +76,7 @@ async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
   }
 
   await applyPageDecorations(canvas, options);
+  setWhiteBackground(canvas);
   canvas.renderAll();
   return canvas;
 }
@@ -311,6 +319,7 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     if (headerGroup) headerGroup.set({ visible: false });
 
     textObjects.forEach((obj) => obj.set({ visible: false }));
+    setWhiteBackground(canvas);
     canvas.renderAll();
 
     const backgroundData = toDataUrl(canvas, {
