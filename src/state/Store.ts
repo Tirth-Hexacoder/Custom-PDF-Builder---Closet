@@ -6,6 +6,8 @@ import type { FabricJSON, Page, PendingCapture, ProjectImage, ProposalDocumentSn
 import { createBomPages } from "../utils/bomTableUtils";
 import { buildDocumentSnapshot } from "../utils/documentAdapter";
 
+const SESSION_DOC_KEY = "pdf_builder_document_snapshot_v1";
+
 export class Store {
   projectId = "";
   projectName = "";
@@ -23,13 +25,37 @@ export class Store {
   // Load Initial Setup
   constructor(initialDocument?: ProposalDocumentSnapshot | null) {
     makeAutoObservable(this);
+    const sessionDocument = this.readSessionSnapshot();
     if (initialDocument && this.loadSnapshot(initialDocument)) {
+      this.persistSessionSnapshot();
+      return;
+    }
+    if (sessionDocument && this.loadSnapshot(sessionDocument)) {
+      this.persistSessionSnapshot();
       return;
     }
     this.loadUser();
     this.setupTableData();
     this.setupDefaultPages();
     this.activePageId = this.pages[0].id;
+    this.persistSessionSnapshot();
+  }
+
+  private readSessionSnapshot() {
+    if (typeof window === "undefined" || !window.sessionStorage) return null;
+    const raw = window.sessionStorage.getItem(SESSION_DOC_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ProposalDocumentSnapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  private persistSessionSnapshot() {
+    if (typeof window === "undefined" || !window.sessionStorage) return;
+    const snapshot = this.toDocumentSnapshot();
+    window.sessionStorage.setItem(SESSION_DOC_KEY, JSON.stringify(snapshot));
   }
 
   loadSnapshot(snapshot: ProposalDocumentSnapshot) {
@@ -101,6 +127,7 @@ export class Store {
   // Set Active Page
   setActivePageId(id: string) {
     this.activePageId = id;
+    this.persistSessionSnapshot();
   }
 
   // Add Capture Into Pending Capture Array
@@ -115,6 +142,7 @@ export class Store {
     const idx = this.pages.findIndex((p) => p.id === pageId);
     if (idx >= 0) {
       this.pages[idx].fabricJSON = json ? JSON.parse(JSON.stringify(json)) : null;
+      this.persistSessionSnapshot();
     }
   }
 
@@ -132,6 +160,7 @@ export class Store {
     };
     this.pages.push(page);
     this.activePageId = page.id;
+    this.persistSessionSnapshot();
   }
 
   // Remove The Page From Pages Array of Store
@@ -140,6 +169,7 @@ export class Store {
     const idx = this.pages.findIndex((p) => p.id === this.activePageId);
     this.pages.splice(idx, 1);
     this.activePageId = this.pages[Math.max(0, idx - 1)].id;
+    this.persistSessionSnapshot();
   }
 
   // Swap current page index with the next page index
@@ -149,6 +179,7 @@ export class Store {
     const temp = this.pages[index];
     this.pages[index] = this.pages[next];
     this.pages[next] = temp;
+    this.persistSessionSnapshot();
   }
 
   // Move page from one position to another
@@ -158,5 +189,6 @@ export class Store {
     if (toIndex < 0 || toIndex >= this.pages.length) return;
     const [moved] = this.pages.splice(fromIndex, 1);
     this.pages.splice(toIndex, 0, moved);
+    this.persistSessionSnapshot();
   }
 }
