@@ -5,21 +5,18 @@ import { applyPageDecorations, isDecorationId, isLockedDecorationId } from "./pa
 
 const GUIDE_SNAP_THRESHOLD = 6;
 
-function createBOMText(rows: Array<{ sku: string; name: string; qty: number; price: number }>) {
-  const lines = ["BILL OF MATERIALS", "-----------------"];
-  rows.forEach((r, i) => lines.push(`${i + 1}. ${r.sku} | ${r.name} | Qty: ${r.qty} | $${r.price}`));
-  return lines.join("\n");
-}
-
+// If the Fabric Object is Type of Text
 function isTextObject(obj: fabric.Object | null | undefined) {
   return obj && ["i-text", "textbox", "text"].includes(obj.type);
 }
 
+// If the Fabric Object is BOM Object
 function isBomObject(obj: fabric.Object | null | undefined) {
   const id = obj?.data?.id;
   return typeof id === "string" && id.startsWith("bom-");
 }
 
+// Rotation Icon Addition
 function getRotationGlyph() {
   if (typeof document === "undefined") return null;
   const el = document.createElement("i");
@@ -39,6 +36,7 @@ function getRotationGlyph() {
   return cleaned;
 }
 
+// Create The Canvas (Page) -- Actual
 export function createPageCanvas(options: CreateCanvasOptions) {
   const {
     host,
@@ -896,7 +894,3 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     }
   };
 }
-
-
-
-

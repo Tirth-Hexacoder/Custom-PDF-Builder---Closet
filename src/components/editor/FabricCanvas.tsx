@@ -21,6 +21,7 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
   const hostRef = useRef<HTMLCanvasElement | null>(null);
   const apiRef = useRef<ReturnType<typeof createPageCanvas> | null>(null);
 
+  // Creating the Initial Canvas (Page)
   useEffect(() => {
     if (!hostRef.current) return;
     apiRef.current = createPageCanvas({
@@ -43,10 +44,12 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
     };
   }, []);
 
+  // Changing of the Canvas (Page) Reference/Target
   useEffect(() => {
     apiRef.current?.setCallbacks(onPageChange, onReady);
   }, [onPageChange, onReady]);
 
+  // Add Header and Footer When Data is Changed or New Pages are Added
   useEffect(() => {
     apiRef.current?.setHeaderFooter({
       headerText,
@@ -69,6 +72,7 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
     designerMobile
   ]);
 
+  // Load the Selected Page (Ref)
   useEffect(() => {
     if (!page) return;
     apiRef.current?.loadPage(page);

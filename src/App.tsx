@@ -57,14 +57,12 @@ export default function App() {
       </header>
 
       <div className={`main-wrapper ${activeTab === "scene" ? "full-screen-scene" : ""}`}>
-        {/* Navigation Overlays */}
+
         {activeTab === "scene" && (
           <button className="corner-nav-btn bottom-right" onClick={goNext}>
             Go To Editor &rarr;
           </button>
         )}
-
-        {/* Removed corner-nav-btns for editor as they are now in the internal toolbar */}
 
         {activeTab === "download" && (
           <button className="corner-nav-btn bottom-left" onClick={goPrev}>

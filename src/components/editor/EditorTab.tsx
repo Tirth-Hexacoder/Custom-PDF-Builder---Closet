@@ -5,11 +5,16 @@ import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
 
 export const EditorTab = observer(function EditorTab() {
+
   const store = useStore();
+
   const canvasRef = useRef<FabricCanvasHandle | null>(null);
+
   const processedCaptureIdsRef = useRef<Set<string>>(new Set());
   const pendingCaptureBufferRef = useRef<PendingCapture[]>([]);
+
   const firstPageRenderRef = useRef(true);
+
   const [canvasReady, setCanvasReady] = useState(false);
   const [isPageSwitching, setIsPageSwitching] = useState(false);
   const [fontSize, setFontSize] = useState(24);
@@ -22,6 +27,7 @@ export const EditorTab = observer(function EditorTab() {
     store.pages.findIndex((p) => p.id === activePage?.id)
   );
 
+  // Adding Image on Canvas (Page) and Processed Capture Array
   const addCaptureImages = (queue: PendingCapture[]) => {
     queue.forEach((item) => {
       if (!item?.dataUrl) return;
@@ -31,6 +37,8 @@ export const EditorTab = observer(function EditorTab() {
     });
   };
 
+  // Taken Screeshot Transfered from Pending Capture Array to Queue (Which will be added to Canvas (Page))
+  // If Page is not First Page then Images Still Added into First Page
   useEffect(() => {
     if (!canvasReady || !canvasRef.current || store.pendingCaptures.length === 0) return;
     const firstPageId = store.pages[0]?.id;
@@ -47,6 +55,7 @@ export const EditorTab = observer(function EditorTab() {
     addCaptureImages(queue);
   }, [canvasReady, store.pendingCaptures.length]);
 
+  // Adding All Pending Capture Array's Images to First Page Only
   useEffect(() => {
     const firstPageId = store.pages[0]?.id;
     if (!canvasReady || !canvasRef.current || !firstPageId) return;
@@ -57,6 +66,7 @@ export const EditorTab = observer(function EditorTab() {
     addCaptureImages(queue);
   }, [canvasReady, store.activePageId]);
 
+  // Page Switching UI Update on Left Panel
   useEffect(() => {
     if (firstPageRenderRef.current) {
       firstPageRenderRef.current = false;
@@ -69,7 +79,6 @@ export const EditorTab = observer(function EditorTab() {
 
   return (
     <div className="editor-container">
-      {/* Editor toolbar */}
       <div className="editor-toolbar">
         <div className="toolbar-group">
           <button className="tool-btn" onClick={() => canvasRef.current?.addText()}>
@@ -203,7 +212,6 @@ export const EditorTab = observer(function EditorTab() {
       </div>
 
       <div className="editor-main">
-        {/* Left page previews */}
         <aside className="page-previews">
           <div className="page-previews-list">
             <div className="preview-header">PAGES</div>
@@ -238,9 +246,10 @@ export const EditorTab = observer(function EditorTab() {
           </div>
         </aside>
 
-        {/* Main Editor Viewport */}
         <div className="editor-viewport">
           <div className={`canvas-container-outer ${isPageSwitching ? "is-page-switching" : ""}`}>
+
+            {/* Actual Canvas (Page) */}
             <FabricCanvas
               ref={canvasRef}
               page={activePage}

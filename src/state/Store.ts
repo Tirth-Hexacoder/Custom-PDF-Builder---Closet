@@ -19,6 +19,7 @@ export class Store {
   pendingCaptures: PendingCapture[] = [];
   tableData: TableData = { rows: [], grandTotal: "" };
 
+  // Load Initial Setup
   constructor() {
     makeAutoObservable(this);
     this.loadUser();
@@ -27,6 +28,7 @@ export class Store {
     this.activePageId = this.pages[0].id;
   }
 
+  // Setup Default Pages as Per Number of Images
   setupDefaultPages() {
     const images = this.getDefaultImageUrls();
     const imagePages = images.map((url, index) => ({
@@ -40,10 +42,12 @@ export class Store {
 
   }
 
+  // Get Image List From Json Data
   getDefaultImageUrls() {
     return imageList as string[];
   }
 
+  // Load User Data From Json
   loadUser() {
     const firstUser = (userData as { users: UserRecord[] }).users[0];
     if (!firstUser) return;
@@ -56,6 +60,7 @@ export class Store {
     this.images = firstUser.images ?? [];
   }
 
+  // Get Table (BOM) Data From Json
   setupTableData() {
     const source = tableData as TableData;
     this.tableData = {
@@ -64,15 +69,18 @@ export class Store {
     };
   }
 
+  // Set Active Page
   setActivePageId(id: string) {
     this.activePageId = id;
   }
 
+  // Add Capture Into Pending Capture Array
   addCapture(dataUrl: string) {
     const captureId = crypto.randomUUID();
     this.pendingCaptures = [...this.pendingCaptures, { id: captureId, dataUrl }];
   }
 
+  // 
   setPageFabricJSON(pageId: string | null | undefined, json: FabricJSON) {
     if (!pageId) return;
     const idx = this.pages.findIndex((p) => p.id === pageId);
@@ -81,6 +89,7 @@ export class Store {
     }
   }
 
+  // Create & Add Page Into Pages Array of Store
   addPage(copyOfActive = false) {
     const active = this.pages.find((p) => p.id === this.activePageId);
     const page: Page = {
@@ -92,45 +101,11 @@ export class Store {
     this.activePageId = page.id;
   }
 
+  // Remove The Page From Pages Array of Store
   deleteActivePage() {
     if (this.pages.length <= 1) return;
     const idx = this.pages.findIndex((p) => p.id === this.activePageId);
     this.pages.splice(idx, 1);
     this.activePageId = this.pages[Math.max(0, idx - 1)].id;
-  }
-
-  updateTableCell(index: number, field: "part" | "description" | "unitPrice" | "qty" | "total", value: string) {
-    const row = this.tableData.rows[index];
-    if (!row) return;
-    if (field === "qty") {
-      row.qty = value;
-      return;
-    }
-    row[field] = value;
-  }
-
-  toggleTableRowBold(index: number) {
-    const row = this.tableData.rows[index];
-    if (!row) return;
-    row.isBold = !row.isBold;
-  }
-
-  addTableRow() {
-    this.tableData.rows.push({
-      part: "",
-      description: "",
-      unitPrice: "",
-      qty: "",
-      total: ""
-    });
-  }
-
-  removeTableRow(index: number) {
-    if (index < 0 || index >= this.tableData.rows.length) return;
-    this.tableData.rows.splice(index, 1);
-  }
-
-  setTableGrandTotal(value: string) {
-    this.tableData.grandTotal = value;
   }
 }

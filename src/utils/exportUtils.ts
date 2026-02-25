@@ -7,6 +7,7 @@ import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./page
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
 
+// Add Image and Fit Inside a Page
 function fitImageToPage(img: fabric.Image, canvas: fabric.StaticCanvas) {
   const margin = 40;
   const topMargin = 100;
@@ -25,6 +26,7 @@ function fitImageToPage(img: fabric.Image, canvas: fabric.StaticCanvas) {
   });
 }
 
+// Generates Raster Image Using Given Options
 function toDataUrl(canvas: fabric.StaticCanvas, options: RenderImageOptions) {
   const format = options.format ?? "png";
   const multiplier = options.multiplier ?? 2;
@@ -32,6 +34,7 @@ function toDataUrl(canvas: fabric.StaticCanvas, options: RenderImageOptions) {
   return canvas.toDataURL({ format, multiplier, quality });
 }
 
+// Creates a Fabric Static Canvas (Page)
 function createExportCanvas() {
   const el = document.createElement("canvas");
   return new fabric.StaticCanvas(el, {
@@ -41,6 +44,7 @@ function createExportCanvas() {
   });
 }
 
+// Loads Data From Fabric JSON OR Adds Image To a Page
 async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
   const canvas = createExportCanvas();
 
@@ -69,6 +73,7 @@ async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
   return canvas;
 }
 
+// Breaks All Fabric Objects Into Part ... If Single Object Adds Into List, If Already a Group Object Then Break That Also
 function flattenObjects(objects: fabric.Object[]) {
   const list: fabric.Object[] = [];
   objects.forEach((obj) => {
@@ -81,10 +86,12 @@ function flattenObjects(objects: fabric.Object[]) {
   return list;
 }
 
+// Checking If the Fabric Object Is The Text Type
 function isFabricTextObject(obj: fabric.Object) {
   return obj.type === "text" || obj.type === "i-text" || obj.type === "textbox";
 }
 
+// Checking The Font Family Of The Text
 function mapFontFamily(fontFamily?: string) {
   const value = (fontFamily || "").toLowerCase();
   if (value.includes("courier") || value.includes("mono")) return "courier";
@@ -92,6 +99,7 @@ function mapFontFamily(fontFamily?: string) {
   return "helvetica";
 }
 
+// Bold, Italic Font Style Mapping
 function mapFontStyle(fontWeight: unknown, fontStyle: unknown) {
   const weightNumber = typeof fontWeight === "number" ? fontWeight : Number(fontWeight);
   const isBold = fontWeight === "bold" || Number.isFinite(weightNumber) && weightNumber >= 600;
@@ -102,6 +110,7 @@ function mapFontStyle(fontWeight: unknown, fontStyle: unknown) {
   return "normal";
 }
 
+// Color Apply On Text 
 function parseColor(fill: unknown) {
   if (typeof fill !== "string") return { r: 17, g: 24, b: 39 };
   const value = fill.trim().toLowerCase();
@@ -136,12 +145,14 @@ function parseColor(fill: unknown) {
   return { r: 17, g: 24, b: 39 };
 }
 
+// Getting The Angle Of The Object
 function getTextAngle(obj: fabric.Object) {
   const withTotalAngle = obj as fabric.Object & { getTotalAngle?: () => number };
   if (typeof withTotalAngle.getTotalAngle === "function") return withTotalAngle.getTotalAngle();
   return obj.angle || 0;
 }
 
+// Generating The First Page of Exported PDF
 async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   const el = document.createElement("canvas");
   const canvas = new fabric.StaticCanvas(el, {
@@ -174,7 +185,7 @@ async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   return data;
 }
 
-
+// Building The Header In Exported PDF
 function buildHeaderParts(options: RenderImageOptions) {
   const separator = " - ";
   const headerText = options.headerText || "Modular Closets Renderings";
@@ -190,6 +201,7 @@ function buildHeaderParts(options: RenderImageOptions) {
   ].filter((item) => item.text !== "");
 }
 
+// Selectable Text Of The Header In Exported PDF
 function drawSelectableHeader(doc: jsPDF, options: RenderImageOptions, scaleY: number) {
   const parts = buildHeaderParts(options);
   if (parts.length === 0) return;
@@ -215,6 +227,7 @@ function drawSelectableHeader(doc: jsPDF, options: RenderImageOptions, scaleY: n
   });
 }
 
+// Rendering a Page As Image 
 export async function renderPageToImage(page: Page, options: RenderImageOptions = {}): Promise<string> {
   const canvas = await buildCanvasForPage(page, options);
   const dataUrl = toDataUrl(canvas, options);
@@ -222,6 +235,7 @@ export async function renderPageToImage(page: Page, options: RenderImageOptions 
   return dataUrl;
 }
 
+// Converting The PDF From Pages
 export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {}) {
   const doc = new jsPDF({
     orientation: "portrait",
@@ -340,6 +354,7 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
   doc.save(`proposal-${Date.now()}.pdf`);
 }
 
+// Converting Images From Pages
 export async function exportPagesAsImages(pages: Page[], options: ExportOptions = {}) {
   for (let i = 0; i < pages.length; i += 1) {
     const data = await renderPageToImage(pages[i], {

@@ -1,3 +1,5 @@
+// Creates Header & Footer In Canvas (Page)
+
 import { fabric } from "fabric";
 import type { AnyCanvas, PageDecorOptions } from "../types";
 

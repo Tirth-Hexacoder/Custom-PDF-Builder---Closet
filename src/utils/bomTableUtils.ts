@@ -1,3 +1,5 @@
+// Create the Table From JSON Data
+
 import type { FabricJSON, Page, TableData, TableRow } from "../types";
 
 const PAGE_WIDTH = 794;

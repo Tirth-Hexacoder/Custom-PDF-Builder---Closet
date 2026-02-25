@@ -5,6 +5,7 @@ import { exportPagesAsImages, exportPagesAsPdf } from "../../utils/exportUtils";
 export const ExportTab = observer(function ExportTab() {
   const store = useStore();
 
+  // Export PDF
   const exportPDF = async () => {
     await exportPagesAsPdf(store.pages, {
       headerText: "Modular Closets Renderings",
@@ -15,6 +16,7 @@ export const ExportTab = observer(function ExportTab() {
     });
   };
 
+  // Export All Pages As Image
   const exportImages = async () => {
     await exportPagesAsImages(store.pages, {
       headerText: "Modular Closets Renderings",
@@ -26,6 +28,8 @@ export const ExportTab = observer(function ExportTab() {
   };
 
   return (
+
+    // Project Data Showing
     <section className="scene-layout">
       <div className="panel">
         <h3 className="panel-title">Download & Export</h3>

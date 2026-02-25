@@ -318,7 +318,7 @@ button {
 }
 
 .page-previews {
-  width: 220px;
+  width: 270px;
   background: #f1f5f9;
   border-right: 1px solid var(--border);
   display: flex;
