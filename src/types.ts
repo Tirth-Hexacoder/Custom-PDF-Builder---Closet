@@ -42,6 +42,7 @@ export type FabricCanvasHandle = {
   redo: () => void;
   layerUp: () => void;
   layerDown: () => void;
+  toggleLock: () => void;
   deleteActive: () => void;
   getPageImage: () => Promise<string>;
 };
@@ -50,7 +51,13 @@ export type FabricCanvasProps = {
   page?: Page;
   onPageChange: (pageId: string, json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
-  onTextSelectionChange?: (state: { bold: boolean; italic: boolean; underline: boolean; align: "left" | "center" | "right" }) => void;
+  onTextSelectionChange?: (state: {
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    align: "left" | "center" | "right";
+    locked: boolean;
+  }) => void;
   headerText?: string;
   headerProjectName?: string;
   headerCustomerName?: string;
@@ -80,7 +87,13 @@ export type CreateCanvasOptions = {
   page?: Page;
   onPageChange: (pageId: string, json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
-  onTextSelectionChange?: (state: { bold: boolean; italic: boolean; underline: boolean; align: "left" | "center" | "right" }) => void;
+  onTextSelectionChange?: (state: {
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    align: "left" | "center" | "right";
+    locked: boolean;
+  }) => void;
   headerText?: string;
   headerProjectName?: string;
   headerCustomerName?: string;

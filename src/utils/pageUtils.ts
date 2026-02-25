@@ -29,6 +29,29 @@ function isBomTablePart(obj: fabric.Object | null | undefined) {
   return typeof id === "string" && id.startsWith("bom-") && id !== BOM_TABLE_GROUP_ID;
 }
 
+function isUserLockedObject(obj: fabric.Object | null | undefined) {
+  return !!obj && !!obj.data?.userLocked;
+}
+
+function setUserLockedState(obj: fabric.Object, locked: boolean) {
+  obj.set({
+    selectable: true,
+    evented: true,
+    hasControls: !locked,
+    lockMovementX: locked,
+    lockMovementY: locked,
+    lockScalingX: locked,
+    lockScalingY: locked,
+    lockRotation: locked,
+    lockSkewingX: locked,
+    lockSkewingY: locked,
+    data: {
+      ...(obj.data || {}),
+      userLocked: locked
+    }
+  });
+}
+
 function isImageObject(obj: fabric.Object | null | undefined): obj is fabric.Image {
   return !!obj && obj.type === "image";
 }
@@ -241,24 +264,28 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   };
 
   const applyImageControlsToCanvas = () => {
-    canvas.getObjects().forEach((obj) => applyImageControls(obj));
+    canvas.getObjects().forEach((obj) => {
+      applyImageControls(obj);
+      if (isUserLockedObject(obj)) setUserLockedState(obj, true);
+    });
   };
 
   const applyBomGroupBehavior = (obj: fabric.Object) => {
+    const locked = isUserLockedObject(obj);
     obj.set({
       selectable: true,
       evented: true,
       hasControls: false,
       hasBorders: true,
-      lockMovementX: false,
-      lockMovementY: false,
+      lockMovementX: locked,
+      lockMovementY: locked,
       lockScalingX: true,
       lockScalingY: true,
       lockRotation: true,
       lockSkewingX: true,
       lockSkewingY: true,
-      hoverCursor: "move",
-      moveCursor: "move",
+      hoverCursor: locked ? "default" : "move",
+      moveCursor: locked ? "default" : "move",
       data: { ...(obj.data || {}), id: BOM_TABLE_GROUP_ID }
     });
   };
@@ -372,8 +399,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   }
 
   function toToolbarState(obj: fabric.Object | null | undefined) {
+    const locked = isUserLockedObject(obj);
     if (!isTextObject(obj) || isBomObject(obj)) {
-      return { bold: false, italic: false, underline: false, align: "left" as const };
+      return { bold: false, italic: false, underline: false, align: "left" as const, locked };
     }
     const textObj = obj as FabricTextObject;
     const align: "left" | "center" | "right" =
@@ -382,7 +410,8 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       bold: textObj.fontWeight === "bold" || Number(textObj.fontWeight) >= 600,
       italic: textObj.fontStyle === "italic",
       underline: !!textObj.underline,
-      align
+      align,
+      locked
     };
   }
 
@@ -392,7 +421,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     if (active?.type === "activeSelection") {
       const selection = active as fabric.ActiveSelection;
       const textTarget = selection.getObjects().find((obj) => isTextObject(obj) && !isBomObject(obj));
-      onTextSelectionChangeRef(toToolbarState(textTarget ?? null));
+      const lockTarget = selection.getObjects()[0] ?? null;
+      const state = toToolbarState(textTarget ?? lockTarget);
+      const allLocked = selection.getObjects().every((obj) => isUserLockedObject(obj));
+      onTextSelectionChangeRef({ ...state, locked: allLocked });
       return;
     }
     onTextSelectionChangeRef(toToolbarState(active));
@@ -619,6 +651,27 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     pushHistory();
   }
 
+  function toggleObjectLock() {
+    const activeObjects = canvas.getActiveObjects();
+    const targets = activeObjects.length > 0
+      ? activeObjects
+      : [canvas.getActiveObject()].filter(Boolean) as fabric.Object[];
+    if (targets.length === 0) return;
+
+    const editableTargets = targets.filter((obj) => !isLockedDecorationId(obj.data?.id));
+    if (editableTargets.length === 0) return;
+    const shouldUnlock = editableTargets.every((obj) => isUserLockedObject(obj));
+
+    editableTargets.forEach((obj) => {
+      setUserLockedState(obj, !shouldUnlock);
+      obj.setCoords();
+    });
+
+    canvas.requestRenderAll();
+    pushHistory();
+    emitSelectionStyle();
+  }
+
   function clearGuides() {
     guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
     rotationGuideState = { active: false, angle: 0, point: null };
@@ -758,11 +811,32 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       }
       ctx.restore();
     }
+
+    const activeObjects = canvas.getActiveObjects();
+    activeObjects.forEach((obj) => {
+      if (!isUserLockedObject(obj)) return;
+      const bounds = obj.getBoundingRect(true, true);
+      const x = bounds.left + bounds.width - 8;
+      const y = bounds.top + 8;
+      ctx.save();
+      ctx.fillStyle = "#111827";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.rect(x - 7, y + 1, 14, 11);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, 4.2, Math.PI, 0);
+      ctx.stroke();
+      ctx.restore();
+    });
   }
 
   function onObjectMoving(event: fabric.IEvent) {
     const target = event.target as fabric.Object | undefined;
     if (!target) return;
+    if (isUserLockedObject(target)) return;
 
     const pageWidth = canvas.getWidth();
     const pageHeight = canvas.getHeight();
@@ -894,6 +968,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   function onObjectRotating(event: fabric.IEvent) {
     const target = event.target as fabric.Object | undefined;
     if (!target) return;
+    if (isUserLockedObject(target)) return;
     const coords = target.oCoords?.mtr;
     if (!coords) return;
     rotationGuideState = {
@@ -1128,6 +1203,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     layerDown() {
       moveLayer("down");
     },
+    toggleLock() {
+      toggleObjectLock();
+    },
     deleteActive() {
       removeActiveObjects();
     },
@@ -1142,7 +1220,13 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     setCallbacks(
       nextOnPageChange: (pageId: string, json: FabricJSON) => void,
       nextOnReady?: (ready: boolean) => void,
-      nextOnTextSelectionChange?: (state: { bold: boolean; italic: boolean; underline: boolean; align: "left" | "center" | "right" }) => void
+      nextOnTextSelectionChange?: (state: {
+        bold: boolean;
+        italic: boolean;
+        underline: boolean;
+        align: "left" | "center" | "right";
+        locked: boolean;
+      }) => void
     ) {
       onPageChangeRef = nextOnPageChange;
       onReadyRef = nextOnReady;

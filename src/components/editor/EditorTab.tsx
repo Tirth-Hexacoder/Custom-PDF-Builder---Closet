@@ -33,6 +33,7 @@ export const EditorTab = observer(function EditorTab() {
   const [isBold, setIsBold] = useState(false);
   const [isItalic, setIsItalic] = useState(false);
   const [isUnderline, setIsUnderline] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
 
   const activePage = store.pages.find((p) => p.id === store.activePageId) || store.pages[0];
   const activePageIndex = Math.max(
@@ -320,6 +321,16 @@ export const EditorTab = observer(function EditorTab() {
 
           <div className="toolbar-divider"></div>
 
+          <button
+            className={`tool-btn ${isLocked ? "active" : ""}`}
+            onClick={() => canvasRef.current?.toggleLock()}
+            title={isLocked ? "Unlock" : "Lock"}
+          >
+            <i className={`fa-solid ${isLocked ? "fa-lock" : "fa-lock-open"}`}></i>
+          </button>
+
+          <div className="toolbar-divider"></div>
+
           <button className="tool-btn" style={{ color: '#ef4444' }} onClick={() => canvasRef.current?.deleteActive()}>
             <i className="fa-solid fa-trash-can"></i>
             <span>Delete</span>
@@ -446,6 +457,7 @@ export const EditorTab = observer(function EditorTab() {
                 setIsItalic(state.italic);
                 setIsUnderline(state.underline);
                 setTextAlign(state.align);
+                setIsLocked(state.locked);
               }}
               headerText="Modular Closets Renderings"
               headerProjectName={store.projectName}
