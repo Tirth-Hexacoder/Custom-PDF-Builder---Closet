@@ -362,19 +362,3 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
 
   doc.save(`proposal-${Date.now()}.pdf`);
 }
-
-// Converting Images From Pages
-export async function exportPagesAsImages(pages: Page[], options: ExportOptions = {}) {
-  for (let i = 0; i < pages.length; i += 1) {
-    const data = await renderPageToImage(pages[i], {
-      ...options,
-      pageNumber: i + 1,
-      totalPages: pages.length
-    });
-    if (!data) continue;
-    const a = document.createElement("a");
-    a.href = data;
-    a.download = `${pages[i].name.toLowerCase().replace(/\\s+/g, "-")}.png`;
-    a.click();
-  }
-}

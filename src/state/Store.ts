@@ -108,4 +108,22 @@ export class Store {
     this.pages.splice(idx, 1);
     this.activePageId = this.pages[Math.max(0, idx - 1)].id;
   }
+
+  // Swap current page index with the next page index
+  swapAdjacentPages(index: number) {
+    if (index < 0 || index >= this.pages.length - 1) return;
+    const next = index + 1;
+    const temp = this.pages[index];
+    this.pages[index] = this.pages[next];
+    this.pages[next] = temp;
+  }
+
+  // Move page from one position to another
+  movePage(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    if (fromIndex < 0 || fromIndex >= this.pages.length) return;
+    if (toIndex < 0 || toIndex >= this.pages.length) return;
+    const [moved] = this.pages.splice(fromIndex, 1);
+    this.pages.splice(toIndex, 0, moved);
+  }
 }

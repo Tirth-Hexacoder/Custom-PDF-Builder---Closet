@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react-lite";
-import type { FabricCanvasHandle, PendingCapture } from "../../types";
+import type { FabricCanvasHandle, Page, PendingCapture } from "../../types";
 import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
+import { renderPagePreview } from "../../utils/pagePreviewUtils";
 
 export const EditorTab = observer(function EditorTab() {
 
@@ -12,11 +13,19 @@ export const EditorTab = observer(function EditorTab() {
 
   const processedCaptureIdsRef = useRef<Set<string>>(new Set());
   const pendingCaptureBufferRef = useRef<PendingCapture[]>([]);
+  const dragIndexRef = useRef<number | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+  const autoScrollVelocityRef = useRef(0);
+  const previewQueueRef = useRef<string[]>([]);
+  const previewProcessingRef = useRef(false);
+  const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageUrl?: string }>>({});
 
   const firstPageRenderRef = useRef(true);
 
   const [canvasReady, setCanvasReady] = useState(false);
   const [isPageSwitching, setIsPageSwitching] = useState(false);
+  const [pagePreviewMap, setPagePreviewMap] = useState<Record<string, string>>({});
   const [fontSize, setFontSize] = useState(24);
   const [fontColor, setFontColor] = useState("#1f2937");
   const [textAlign, setTextAlign] = useState<"left" | "center" | "right">("left");
@@ -79,6 +88,81 @@ export const EditorTab = observer(function EditorTab() {
     const timer = window.setTimeout(() => setIsPageSwitching(false), 220);
     return () => window.clearTimeout(timer);
   }, [store.activePageId]);
+
+  const startAutoScroll = () => {
+    if (autoScrollRafRef.current !== null) return;
+    const tick = () => {
+      const list = listRef.current;
+      if (!list) {
+        autoScrollRafRef.current = null;
+        return;
+      }
+      if (autoScrollVelocityRef.current !== 0) {
+        list.scrollTop += autoScrollVelocityRef.current;
+      }
+      autoScrollRafRef.current = window.requestAnimationFrame(tick);
+    };
+    autoScrollRafRef.current = window.requestAnimationFrame(tick);
+  };
+
+  const stopAutoScroll = () => {
+    autoScrollVelocityRef.current = 0;
+    if (autoScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    const runQueue = async () => {
+      if (previewProcessingRef.current) return;
+      previewProcessingRef.current = true;
+      while (previewQueueRef.current.length > 0) {
+        const pageId = previewQueueRef.current.shift()!;
+        const page = store.pages.find((p) => p.id === pageId);
+        if (!page) continue;
+        try {
+          const dataUrl = await renderPagePreview(page);
+          setPagePreviewMap((prev) => ({ ...prev, [page.id]: dataUrl }));
+        } catch {
+          // Ignore preview render errors and keep editor responsive.
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      }
+      previewProcessingRef.current = false;
+    };
+
+    const currentIds = new Set(store.pages.map((p) => p.id));
+    setPagePreviewMap((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((id) => {
+        if (!currentIds.has(id)) delete next[id];
+      });
+      return next;
+    });
+
+    store.pages.forEach((page) => {
+      const previous = previewSourceRef.current[page.id];
+      const changed =
+        !previous ||
+        previous.fabricJSON !== page.fabricJSON ||
+        previous.defaultImageUrl !== page.defaultImageUrl;
+      previewSourceRef.current[page.id] = {
+        fabricJSON: page.fabricJSON,
+        defaultImageUrl: page.defaultImageUrl
+      };
+      if (!changed) return;
+      if (!previewQueueRef.current.includes(page.id)) {
+        previewQueueRef.current.push(page.id);
+      }
+    });
+
+    void runQueue();
+  }, [store.pages]);
+
+  useEffect(() => {
+    return () => stopAutoScroll();
+  }, []);
 
   return (
     <div className="editor-container">
@@ -244,18 +328,79 @@ export const EditorTab = observer(function EditorTab() {
 
       <div className="editor-main">
         <aside className="page-previews">
-          <div className="page-previews-list">
+          <div
+            className="page-previews-list"
+            ref={listRef}
+            onDragOver={(e) => {
+              const list = listRef.current;
+              if (!list) return;
+              const rect = list.getBoundingClientRect();
+              const y = e.clientY - rect.top;
+              const edgeSize = 72;
+              const maxSpeed = 18;
+              let velocity = 0;
+              if (y < edgeSize) {
+                velocity = -Math.ceil(((edgeSize - y) / edgeSize) * maxSpeed);
+              } else if (rect.height - y < edgeSize) {
+                velocity = Math.ceil(((edgeSize - (rect.height - y)) / edgeSize) * maxSpeed);
+              }
+              autoScrollVelocityRef.current = velocity;
+              if (velocity !== 0) startAutoScroll();
+            }}
+            onDragLeave={() => {
+              autoScrollVelocityRef.current = 0;
+            }}
+            onDrop={() => {
+              stopAutoScroll();
+            }}
+          >
             <div className="preview-header">PAGES</div>
             {store.pages.map((p, idx) => (
-              <div
-                key={p.id}
-                className={`preview-item ${p.id === store.activePageId ? "active" : ""}`}
-                onClick={() => store.setActivePageId(p.id)}
-              >
-                <div className="preview-img">
-                  <i className="fa-solid fa-file-lines preview-file-icon"></i>
+              <div className="preview-block" key={p.id}>
+                <div
+                  className={`preview-item ${p.id === store.activePageId ? "active" : ""}`}
+                  onClick={() => store.setActivePageId(p.id)}
+                  draggable
+                  onDragStart={() => {
+                    dragIndexRef.current = idx;
+                  }}
+                  onDragEnd={() => {
+                    dragIndexRef.current = null;
+                    stopAutoScroll();
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const fromIndex = dragIndexRef.current;
+                    dragIndexRef.current = null;
+                    if (fromIndex === null) return;
+                    store.movePage(fromIndex, idx);
+                  }}
+                >
+                  <div className="preview-img">
+                    {pagePreviewMap[p.id] ? (
+                      <img src={pagePreviewMap[p.id]} alt={`Preview ${idx + 1}`} className="preview-thumb" />
+                    ) : (
+                      <i className="fa-solid fa-file-lines preview-file-icon"></i>
+                    )}
+                  </div>
+                  <div className="preview-label">{idx + 1}</div>
                 </div>
-                <div className="preview-label">{idx + 1}</div>
+                {idx < store.pages.length - 1 && (
+                  <button
+                    type="button"
+                    className="preview-swap-btn"
+                    title={`Swap Page ${idx + 1} with Page ${idx + 2}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      store.swapAdjacentPages(idx);
+                    }}
+                  >
+                    <i className="fa-solid fa-arrows-rotate"></i>
+                  </button>
+                )}
               </div>
             ))}
           </div>

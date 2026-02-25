@@ -292,10 +292,21 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     canvas.getObjects().forEach((obj) => visit(obj));
   }
 
+  function buildPersistedJson() {
+    normalizeTextStylesForSerialization();
+    const raw = canvas.toJSON(["data"]) as unknown as { objects?: fabric.Object[] } & Record<string, unknown>;
+    const objects = Array.isArray(raw.objects)
+      ? raw.objects.filter((obj) => !isLockedDecorationId(obj?.data?.id))
+      : [];
+    return {
+      ...raw,
+      objects
+    };
+  }
+
   function seedHistoryFromCanvas() {
     // First history snapshot after a page is loaded or initialized.
-    normalizeTextStylesForSerialization();
-    const json = JSON.stringify(canvas.toJSON(["data"]));
+    const json = JSON.stringify(buildPersistedJson());
     history = [json];
     historyIndex = 0;
     hasPageChanges = false;
@@ -305,8 +316,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     // Persist canvas snapshot and sync it back to store via onPageChange.
     if (isRestoring || isDisposed) return;
     if (!currentPageId) return;
-    normalizeTextStylesForSerialization();
-    const json = JSON.stringify(canvas.toJSON(["data"]));
+    const json = JSON.stringify(buildPersistedJson());
     const latest = history[historyIndex];
     if (latest === json) return;
     const list = history.slice(0, historyIndex + 1);
@@ -367,7 +377,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     });
   }
 
-  function addDefaultImage(url: string) {
+  function addDefaultImage(url: string, opts?: { recordHistory?: boolean; onComplete?: () => void }) {
     // Auto-place a default scene image inside printable content area.
     fabric.Image.fromURL(
       url,
@@ -391,7 +401,8 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         canvas.setActiveObject(img);
         ensureHeaderFooter();
         if (!isDisposed) canvas.requestRenderAll();
-        pushHistory();
+        if (opts?.recordHistory !== false) pushHistory();
+        opts?.onComplete?.();
       },
       { crossOrigin: "anonymous" }
     );
@@ -418,7 +429,14 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       isRestoring = false;
       ensureHeaderFooter();
       if (nextPage.defaultImageUrl) {
-        addDefaultImage(nextPage.defaultImageUrl);
+        addDefaultImage(nextPage.defaultImageUrl, {
+          recordHistory: false,
+          onComplete: () => {
+            seedHistoryFromCanvas();
+            emitSelectionStyle();
+          }
+        });
+        return;
       }
       canvas.renderAll();
       seedHistoryFromCanvas();
@@ -846,9 +864,16 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   } else {
     ensureHeaderFooter();
     if (page?.defaultImageUrl) {
-      addDefaultImage(page.defaultImageUrl);
+      addDefaultImage(page.defaultImageUrl, {
+        recordHistory: false,
+        onComplete: () => {
+          seedHistoryFromCanvas();
+          emitSelectionStyle();
+        }
+      });
+    } else {
+      seedHistoryFromCanvas();
     }
-    seedHistoryFromCanvas();
   }
 
   window.addEventListener("keydown", onDeleteKey);
@@ -982,6 +1007,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
         applyImageControlsToCanvas();
         isRestoring = false;
+        ensureHeaderFooter();
         canvas.renderAll();
         emitSelectionStyle();
       });
@@ -995,6 +1021,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
         applyImageControlsToCanvas();
         isRestoring = false;
+        ensureHeaderFooter();
         canvas.renderAll();
         emitSelectionStyle();
       });

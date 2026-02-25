@@ -1,6 +1,6 @@
 import { observer } from "mobx-react-lite";
 import { useStore } from "../../state/Root";
-import { exportPagesAsImages, exportPagesAsPdf } from "../../utils/exportUtils";
+import { exportPagesAsPdf } from "../../utils/exportUtils";
 
 export const ExportTab = observer(function ExportTab() {
   const store = useStore();
@@ -8,17 +8,6 @@ export const ExportTab = observer(function ExportTab() {
   // Export PDF
   const exportPDF = async () => {
     await exportPagesAsPdf(store.pages, {
-      headerText: "Modular Closets Renderings",
-      headerProjectName: store.projectName,
-      headerCustomerName: store.customerName,
-      designerEmail: store.designerEmail,
-      designerMobile: store.mobileNo
-    });
-  };
-
-  // Export All Pages As Image
-  const exportImages = async () => {
-    await exportPagesAsImages(store.pages, {
       headerText: "Modular Closets Renderings",
       headerProjectName: store.projectName,
       headerCustomerName: store.customerName,
@@ -37,9 +26,6 @@ export const ExportTab = observer(function ExportTab() {
         <div className="controls-row" style={{ marginTop: 24 }}>
           <button className="btn primary" style={{ padding: '12px 24px' }} onClick={exportPDF}>
             <span style={{ fontSize: '1.1rem' }}>Download Professional PDF</span>
-          </button>
-          <button className="btn" style={{ padding: '12px 24px' }} onClick={exportImages}>
-            Download as Images
           </button>
         </div>
       </div>
