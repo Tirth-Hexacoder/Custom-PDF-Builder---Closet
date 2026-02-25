@@ -1,7 +1,7 @@
 import { A4_PX } from "@closet/core";
 import { fabric } from "fabric";
 import type { CreateCanvasOptions, FabricCanvasHandle, FabricJSON, Page } from "../types";
-import { applyPageDecorations, isDecorationId, isLockedDecorationId } from "./pageDecorUtils";
+import { applyPageDecorations, bringDecorationsToFront, isDecorationId, isLockedDecorationId } from "./pageDecorUtils";
 
 const GUIDE_SNAP_THRESHOLD = 6;
 const MIN_IMAGE_CROP_SIZE = 24;
@@ -247,6 +247,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   let decorVersion = 0;
   let currentPageId: string | null = page?.id ?? null;
   let isDisposed = false;
+  let textChangeTimer: number | null = null;
 
   // Visual helper states used while moving/rotating objects.
   let guideState = {
@@ -373,7 +374,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     }).finally(() => {
       if (requestVersion !== decorVersion) return;
       isApplyingDecorations = false;
-      if (!isDisposed) canvas.requestRenderAll();
+      if (!isDisposed) {
+        bringDecorationsToFront(canvas);
+        canvas.requestRenderAll();
+      }
     });
   }
 
@@ -552,6 +556,11 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     rotationGuideState = { active: false, angle: 0, point: null };
     alignGuideState = { x: null, y: null };
     if (!isDisposed) canvas.requestRenderAll();
+  }
+
+  function onMouseUp() {
+    clearGuides();
+    pushHistory();
   }
 
   function clearGuideLayer() {
@@ -834,7 +843,20 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     const objectId = target?.data?.id;
     if (isApplyingDecorations) return;
     if (isLockedDecorationId(objectId)) return;
+    bringDecorationsToFront(canvas);
     pushHistory();
+  };
+
+  const onTextChanged = (event: fabric.IEvent) => {
+    const target = event.target as fabric.Object | undefined;
+    if (isApplyingDecorations) return;
+    if (isLockedDecorationId(target?.data?.id)) return;
+    if (textChangeTimer !== null) window.clearTimeout(textChangeTimer);
+    textChangeTimer = window.setTimeout(() => {
+      textChangeTimer = null;
+      pushHistory();
+      emitSelectionStyle();
+    }, 120);
   };
 
   canvas.on("object:added", onCanvasChanged);
@@ -842,9 +864,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.on("object:removed", onCanvasChanged);
   canvas.on("object:moving", onObjectMoving);
   canvas.on("object:rotating", onObjectRotating);
+  canvas.on("text:changed", onTextChanged);
   canvas.on("before:render", clearGuideLayer);
   canvas.on("after:render", renderGuides);
-  canvas.on("mouse:up", clearGuides);
+  canvas.on("mouse:up", onMouseUp);
   canvas.on("selection:created", emitSelectionStyle);
   canvas.on("selection:updated", emitSelectionStyle);
   canvas.on("selection:cleared", emitSelectionStyle);
@@ -1071,6 +1094,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     },
     dispose() {
       isDisposed = true;
+      if (textChangeTimer !== null) {
+        window.clearTimeout(textChangeTimer);
+        textChangeTimer = null;
+      }
       window.removeEventListener("keydown", onDeleteKey);
       window.removeEventListener("keydown", onClipboardShortcuts);
       canvas.dispose();

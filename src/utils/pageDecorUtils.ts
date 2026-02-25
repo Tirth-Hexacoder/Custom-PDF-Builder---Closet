@@ -63,6 +63,25 @@ function removeById(canvas: AnyCanvas, id: string) {
   if (obj) canvas.remove(obj);
 }
 
+export function bringDecorationsToFront(canvas: AnyCanvas) {
+  const orderedIds = [HEADER_ID, DATE_ID, CONTACT_INFO_ID, PAGE_NUMBER_ID, FOOTER_ID, STAMP_ID];
+  const api = canvas as AnyCanvas & {
+    bringToFront?: (obj: fabric.Object) => void;
+    moveTo?: (obj: fabric.Object, index: number) => void;
+  };
+  orderedIds.forEach((id) => {
+    const obj = findById(canvas, id);
+    if (!obj) return;
+    if (typeof api.bringToFront === "function") {
+      api.bringToFront(obj);
+      return;
+    }
+    if (typeof api.moveTo === "function") {
+      api.moveTo(obj, canvas.getObjects().length - 1);
+    }
+  });
+}
+
 function lockObject(obj: fabric.Object) {
   obj.set({
     selectable: false,
@@ -174,6 +193,7 @@ function addOrUpdateContact(canvas: AnyCanvas, designerEmail?: string, designerM
   contact.set({ data: { id: CONTACT_INFO_ID } });
   moveOnlyObject(contact);
   canvas.add(contact);
+  bringDecorationsToFront(canvas);
 }
 
 function addDate(canvas: AnyCanvas) {
@@ -296,4 +316,5 @@ export async function applyPageDecorations(canvas: AnyCanvas, options: PageDecor
     options.addContactIfMissing !== false
   );
   await Promise.all([addFooter(canvas, footerLogoUrl, isActive), addStamp(canvas, stampUrl, isActive)]);
+  bringDecorationsToFront(canvas);
 }

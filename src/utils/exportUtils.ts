@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
 import type { ExportOptions, Page, RenderImageOptions } from "../types";
-import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
+import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL } from "./pageDecorUtils";
 
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
@@ -188,7 +188,7 @@ async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   });
 
   canvas.renderAll();
-  const data = canvas.toDataURL({ format: "jpeg", quality: 0.9, multiplier: 1 });
+  const data = canvas.toDataURL({ format: "jpeg", quality: 0.82, multiplier: 1 });
   canvas.dispose();
   return data;
 }
@@ -253,9 +253,6 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
   });
 
   let pageCount = 0;
-  const scaleX = PDF_PAGE_WIDTH / A4_PX.width;
-  const scaleY = PDF_PAGE_HEIGHT / A4_PX.height;
-
   const coverLogoUrl = options.footerLogoUrl || DEFAULT_FOOTER_LOGO_URL;
   const coverImage = await buildPdfCoverImage(coverLogoUrl);
   doc.addImage(coverImage, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
@@ -270,91 +267,18 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
 
     const canvas = await buildCanvasForPage(pages[i], pageOptions);
 
-    const textObjects = flattenObjects(canvas.getObjects())
-      .filter((obj) => isFabricTextObject(obj))
-      // Skip text that is inside fabric groups (header is grouped and was causing broken overlay)
-      .filter((obj) => !obj.group)
-      .map((obj) => obj as fabric.Text | fabric.IText | fabric.Textbox);
-
-    const textOverlays: Array<{
-      text: string;
-      x: number;
-      y: number;
-      maxWidth?: number;
-      angle: number;
-      align: "left" | "center" | "right";
-      fontSize: number;
-      lineHeight: number;
-      fontFamily: "helvetica" | "times" | "courier";
-      fontStyle: "normal" | "bold" | "italic" | "bolditalic";
-      color: { r: number; g: number; b: number };
-    }> = [];
-
-    textObjects.forEach((obj) => {
-      const text = (obj.text || "").trim();
-      if (!text) return;
-
-      const bounds = obj.getBoundingRect(true, true);
-      const rawAlign = obj.textAlign === "center" || obj.textAlign === "right" ? obj.textAlign : "left";
-      const x = rawAlign === "center" ? bounds.left + bounds.width / 2 : rawAlign === "right" ? bounds.left + bounds.width : bounds.left;
-      const maxWidth = obj.type === "textbox" ? obj.getScaledWidth() : undefined;
-      const scaledFontSize = (obj.fontSize || 16) * (obj.scaleY || 1);
-
-      textOverlays.push({
-        text: obj.text || "",
-        x,
-        y: bounds.top,
-        maxWidth,
-        angle: getTextAngle(obj),
-        align: rawAlign,
-        fontSize: scaledFontSize,
-        lineHeight: obj.lineHeight || 1.16,
-        fontFamily: mapFontFamily(obj.fontFamily),
-        fontStyle: mapFontStyle(obj.fontWeight, obj.fontStyle),
-        color: parseColor(obj.fill)
-      });
-    });
-
-    const headerGroup = canvas.getObjects().find((obj) => obj.data?.id === HEADER_ID);
-    if (headerGroup) headerGroup.set({ visible: false });
-
-    textObjects.forEach((obj) => obj.set({ visible: false }));
     setWhiteBackground(canvas);
     canvas.renderAll();
 
-    const backgroundData = toDataUrl(canvas, {
+    const pageData = toDataUrl(canvas, {
       ...pageOptions,
       format: "jpeg",
-      multiplier: 1.5,
-      quality: 0.86
+      multiplier: 1.3,
+      quality: 0.8
     });
 
     if (pageCount > 0) doc.addPage();
-    doc.addImage(backgroundData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
-
-    drawSelectableHeader(doc, pageOptions, scaleY);
-
-    textOverlays.forEach((item) => {
-      doc.setFont(item.fontFamily, item.fontStyle);
-      doc.setFontSize(Math.max(6, item.fontSize * scaleY));
-      doc.setLineHeightFactor(item.lineHeight);
-      doc.setTextColor(item.color.r, item.color.g, item.color.b);
-
-      const textOptions: {
-        baseline: "top";
-        align: "left" | "center" | "right";
-        angle?: number;
-        maxWidth?: number;
-      } = {
-        baseline: "top",
-        align: item.align
-      };
-
-      if (Math.abs(item.angle) > 0.01) textOptions.angle = item.angle;
-      if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = item.maxWidth * scaleX;
-
-      doc.text(item.text, item.x * scaleX, item.y * scaleY, textOptions);
-    });
+    doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
 
     canvas.dispose();
     pageCount += 1;
