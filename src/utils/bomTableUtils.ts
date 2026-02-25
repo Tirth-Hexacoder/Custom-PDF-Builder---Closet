@@ -4,12 +4,13 @@ import type { FabricJSON, Page, TableData, TableRow } from "../types";
 
 const PAGE_WIDTH = 794;
 const PAGE_HEIGHT = 1123;
-const TABLE_X = 20;
 const TABLE_TOP = 140;
 const TABLE_BOTTOM = 120;
 const HEADER_HEIGHT = 16;
 const COL_WIDTHS = [150, 330, 90, 50, 80];
-const FONT_SIZE = 10;
+const TABLE_WIDTH = COL_WIDTHS.reduce((sum, width) => sum + width, 0);
+const TABLE_X = (PAGE_WIDTH - TABLE_WIDTH) / 2;
+const FONT_SIZE = 11;
 
 function wrapTextByChars(text: string, maxChars: number) {
   const words = (text || "").split(/\s+/).filter(Boolean);
@@ -85,7 +86,7 @@ function makeHeaderText(text: string, left: number, top: number) {
     left,
     top,
     fontFamily: "Inter",
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "700",
     fill: "#0f172a",
     selectable: false,
