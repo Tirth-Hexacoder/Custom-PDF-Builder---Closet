@@ -5,7 +5,8 @@ import type { FabricCanvasHandle, Page, PendingCapture } from "../../types";
 import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
 import { renderPagePreview } from "../../utils/pagePreviewUtils";
-import { rotate } from "three/tsl";
+
+const IMAGE_DRAG_MIME = "application/x-pdf-builder-image-url";
 
 export const EditorTab = observer(function EditorTab() {
 
@@ -23,6 +24,7 @@ export const EditorTab = observer(function EditorTab() {
   const previewQueueRef = useRef<string[]>([]);
   const previewProcessingRef = useRef(false);
   const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageUrl?: string }>>({});
+  const pendingTrayDropsRef = useRef<Array<{ pageId: string; url: string }>>([]);
 
   const firstPageRenderRef = useRef(true);
 
@@ -45,9 +47,22 @@ export const EditorTab = observer(function EditorTab() {
     0,
     store.pages.findIndex((p) => p.id === activePage?.id)
   );
+  const trayImages = Array.from(
+    new Set(
+      [
+        ...store.pages.map((page) => page.defaultImageUrl || ""),
+        ...store.images.map((img) => img.url || "")
+      ].filter((url): url is string => !!url)
+    )
+  );
   const zoomScale = zoomPercent / 100;
   const scaledWidth = Math.round(A4_PX.width * zoomScale);
   const scaledHeight = Math.round(A4_PX.height * zoomScale);
+
+  const getDraggedImageUrl = (event: React.DragEvent) =>
+    event.dataTransfer.getData(IMAGE_DRAG_MIME) ||
+    event.dataTransfer.getData("text/uri-list") ||
+    event.dataTransfer.getData("text/plain");
 
   const getFitZoom = (mode: "width" | "height") => {
     const viewport = viewportRef.current;
@@ -140,6 +155,15 @@ export const EditorTab = observer(function EditorTab() {
     if (fitMode === "none") return;
     setZoomPercent(Math.round(getFitZoom(fitMode)));
   }, [fitMode, store.activePageId, store.pages.length]);
+
+  useEffect(() => {
+    if (!canvasReady || !canvasRef.current || !store.activePageId) return;
+    const pendingIndex = pendingTrayDropsRef.current.findIndex((item) => item.pageId === store.activePageId);
+    if (pendingIndex < 0) return;
+    const [pending] = pendingTrayDropsRef.current.splice(pendingIndex, 1);
+    if (!pending?.url) return;
+    canvasRef.current.addImage(pending.url);
+  }, [canvasReady, store.activePageId]);
 
   const startAutoScroll = () => {
     if (autoScrollRafRef.current !== null) return;
@@ -479,18 +503,38 @@ export const EditorTab = observer(function EditorTab() {
                   className={`preview-item ${p.id === store.activePageId ? "active" : ""}`}
                   onClick={() => store.setActivePageId(p.id)}
                   draggable
-                  onDragStart={() => {
+                  onDragStart={(e) => {
                     dragIndexRef.current = idx;
+                    e.dataTransfer.setData("application/x-pdf-builder-page-index", String(idx));
+                    e.dataTransfer.effectAllowed = "move";
                   }}
                   onDragEnd={() => {
                     dragIndexRef.current = null;
                     stopAutoScroll();
                   }}
                   onDragOver={(e) => {
+                    const imageUrl = getDraggedImageUrl(e);
+                    if (imageUrl) {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      return;
+                    }
                     e.preventDefault();
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
+                    const imageUrl = getDraggedImageUrl(e);
+                    if (imageUrl) {
+                      pendingTrayDropsRef.current.push({ pageId: p.id, url: imageUrl });
+                      if (store.activePageId !== p.id) {
+                        store.setActivePageId(p.id);
+                      } else if (canvasReady && canvasRef.current) {
+                        const pendingIndex = pendingTrayDropsRef.current.findIndex((item) => item.pageId === p.id && item.url === imageUrl);
+                        if (pendingIndex >= 0) pendingTrayDropsRef.current.splice(pendingIndex, 1);
+                        canvasRef.current.addImage(imageUrl);
+                      }
+                      return;
+                    }
                     const fromIndex = dragIndexRef.current;
                     dragIndexRef.current = null;
                     if (fromIndex === null) return;
@@ -541,7 +585,23 @@ export const EditorTab = observer(function EditorTab() {
         </aside>
 
         <div className={`editor-canvas-panel ${fitMode === "height" ? "fit-height-mode" : ""}`}>
-          <div className="editor-viewport" ref={viewportRef}>
+          <div
+            className="editor-viewport"
+            ref={viewportRef}
+            onDragOver={(e) => {
+              const imageUrl = getDraggedImageUrl(e);
+              if (!imageUrl) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(e) => {
+              const imageUrl = getDraggedImageUrl(e);
+              if (!imageUrl) return;
+              e.preventDefault();
+              if (!canvasReady || !canvasRef.current) return;
+              canvasRef.current.addImage(imageUrl);
+            }}
+          >
           <div
             className="canvas-scale-shell"
             style={{ width: `${scaledWidth}px`, height: `${scaledHeight}px` }}
@@ -577,6 +637,29 @@ export const EditorTab = observer(function EditorTab() {
           </div>
           </div>
         </div>
+
+        <aside className="image-tray">
+          <div className="image-tray-header">IMAGES</div>
+          <div className="image-tray-list">
+            {trayImages.map((url, index) => (
+              <div
+                key={`${url}-${index}`}
+                className="image-tray-item"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(IMAGE_DRAG_MIME, url);
+                  e.dataTransfer.setData("text/plain", url);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+              >
+                <img src={url} alt={`Asset ${index + 1}`} className="image-tray-thumb" loading="lazy" />
+              </div>
+            ))}
+            {trayImages.length === 0 && (
+              <div className="image-tray-empty">No images</div>
+            )}
+          </div>
+        </aside>
 
       </div>
     </div>
