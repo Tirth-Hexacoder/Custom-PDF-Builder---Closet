@@ -136,3 +136,20 @@ export type TableData = {
   rows: TableRow[];
   grandTotal?: string;
 };
+
+export type ProposalMeta = {
+  projectId?: string;
+  projectName?: string;
+  customerName?: string;
+  designerEmail?: string;
+  date?: string;
+  mobileNo?: string;
+};
+
+export type ProposalDocumentSnapshot = {
+  schemaVersion: 1;
+  activePageId: string | null;
+  meta: ProposalMeta;
+  tableData: TableData;
+  pages: Page[];
+};

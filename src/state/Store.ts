@@ -2,8 +2,9 @@ import { makeAutoObservable } from "mobx";
 import userData from "../data/userData.json";
 import imageList from "../data/imageList.json";
 import tableData from "../data/table.json";
-import type { FabricJSON, Page, PendingCapture, ProjectImage, TableData, UserRecord } from "../types";
+import type { FabricJSON, Page, PendingCapture, ProjectImage, ProposalDocumentSnapshot, TableData, UserRecord } from "../types";
 import { createBomPages } from "../utils/bomTableUtils";
+import { buildDocumentSnapshot } from "../utils/documentAdapter";
 
 export class Store {
   projectId = "";
@@ -20,12 +21,40 @@ export class Store {
   tableData: TableData = { rows: [], grandTotal: "" };
 
   // Load Initial Setup
-  constructor() {
+  constructor(initialDocument?: ProposalDocumentSnapshot | null) {
     makeAutoObservable(this);
+    if (initialDocument && this.loadSnapshot(initialDocument)) {
+      return;
+    }
     this.loadUser();
     this.setupTableData();
     this.setupDefaultPages();
     this.activePageId = this.pages[0].id;
+  }
+
+  loadSnapshot(snapshot: ProposalDocumentSnapshot) {
+    if (!snapshot || snapshot.schemaVersion !== 1 || !Array.isArray(snapshot.pages) || snapshot.pages.length === 0) {
+      return false;
+    }
+    this.projectId = snapshot.meta?.projectId || "";
+    this.projectName = snapshot.meta?.projectName || "";
+    this.customerName = snapshot.meta?.customerName || "";
+    this.designerEmail = snapshot.meta?.designerEmail || "";
+    this.date = snapshot.meta?.date || "";
+    this.mobileNo = snapshot.meta?.mobileNo || "";
+    this.tableData = {
+      rows: (snapshot.tableData?.rows || []).map((row) => ({ ...row })),
+      grandTotal: snapshot.tableData?.grandTotal || ""
+    };
+    this.pages = snapshot.pages.map((page, index) => ({
+      id: page.id || crypto.randomUUID(),
+      name: page.name || `Page ${index + 1}`,
+      fabricJSON: page.fabricJSON ? JSON.parse(JSON.stringify(page.fabricJSON)) : null,
+      defaultImageUrl: page.defaultImageUrl
+    }));
+    const activeExists = this.pages.some((page) => page.id === snapshot.activePageId);
+    this.activePageId = activeExists ? snapshot.activePageId : this.pages[0]?.id ?? null;
+    return true;
   }
 
   // Setup Default Pages as Per Number of Images
@@ -87,6 +116,10 @@ export class Store {
     if (idx >= 0) {
       this.pages[idx].fabricJSON = json ? JSON.parse(JSON.stringify(json)) : null;
     }
+  }
+
+  toDocumentSnapshot(): ProposalDocumentSnapshot {
+    return buildDocumentSnapshot(this);
   }
 
   // Create & Add Page Into Pages Array of Store

@@ -1,11 +1,12 @@
 import { createContext, useContext, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Store } from "./Store";
+import type { ProposalDocumentSnapshot } from "../types";
 
 const StoreContext = createContext<Store | null>(null);
 
-export function Root({ children }: { children: ReactNode }) {
-  const store = useMemo(() => new Store(), []);
+export function Root({ children, initialDocument }: { children: ReactNode; initialDocument?: ProposalDocumentSnapshot | null }) {
+  const store = useMemo(() => new Store(initialDocument), [initialDocument]);
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
 

@@ -1,19 +1,15 @@
 import { observer } from "mobx-react-lite";
 import { useStore } from "../../state/Root";
-import { exportPagesAsPdf } from "../../utils/exportUtils";
+import { downloadSnapshotJson, exportSnapshotAsPdf } from "../../utils/documentAdapter";
 
 export const ExportTab = observer(function ExportTab() {
   const store = useStore();
 
   // Export PDF
   const exportPDF = async () => {
-    await exportPagesAsPdf(store.pages, {
-      headerText: "Modular Closets Renderings",
-      headerProjectName: store.projectName,
-      headerCustomerName: store.customerName,
-      designerEmail: store.designerEmail,
-      designerMobile: store.mobileNo
-    });
+    const snapshot = store.toDocumentSnapshot();
+    downloadSnapshotJson(snapshot);
+    await exportSnapshotAsPdf(snapshot);
   };
 
   return (
