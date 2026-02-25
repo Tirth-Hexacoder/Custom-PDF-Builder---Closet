@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react-lite";
+import { A4_PX } from "@closet/core";
 import type { FabricCanvasHandle, Page, PendingCapture } from "../../types";
 import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
@@ -18,6 +19,7 @@ export const EditorTab = observer(function EditorTab() {
   const listRef = useRef<HTMLDivElement | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
   const autoScrollVelocityRef = useRef(0);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const previewQueueRef = useRef<string[]>([]);
   const previewProcessingRef = useRef(false);
   const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageUrl?: string }>>({});
@@ -34,12 +36,51 @@ export const EditorTab = observer(function EditorTab() {
   const [isItalic, setIsItalic] = useState(false);
   const [isUnderline, setIsUnderline] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const [pageInput, setPageInput] = useState("1");
+  const [fitMode, setFitMode] = useState<"none" | "width" | "height">("none");
 
   const activePage = store.pages.find((p) => p.id === store.activePageId) || store.pages[0];
   const activePageIndex = Math.max(
     0,
     store.pages.findIndex((p) => p.id === activePage?.id)
   );
+  const zoomScale = zoomPercent / 100;
+  const scaledWidth = Math.round(A4_PX.width * zoomScale);
+  const scaledHeight = Math.round(A4_PX.height * zoomScale);
+
+  const getFitZoom = (mode: "width" | "height") => {
+    const viewport = viewportRef.current;
+    if (!viewport) return 100;
+    const availableWidth = Math.max(280, viewport.clientWidth - 96);
+    const availableHeight = Math.max(280, viewport.clientHeight);
+    const widthZoom = (availableWidth / A4_PX.width) * 100;
+    const heightZoom = (availableHeight / A4_PX.height) * 100;
+    return Math.max(20, Math.min(300, mode === "width" ? widthZoom : heightZoom));
+  };
+
+  const applyFitMode = (mode: "width" | "height") => {
+    setFitMode(mode);
+    setZoomPercent(Math.round(getFitZoom(mode)));
+  };
+
+  const setManualZoom = (next: number) => {
+    const clamped = Math.max(20, Math.min(300, Math.round(next)));
+    setFitMode("none");
+    setZoomPercent(clamped);
+  };
+
+  const goToPageFromInput = () => {
+    const parsed = Number(pageInput);
+    if (!Number.isFinite(parsed)) {
+      setPageInput(String(activePageIndex + 1));
+      return;
+    }
+    const target = Math.max(1, Math.min(store.pages.length, Math.round(parsed)));
+    const page = store.pages[target - 1];
+    if (page) store.setActivePageId(page.id);
+    setPageInput(String(target));
+  };
 
   // Adding Image on Canvas (Page) and Processed Capture Array
   const addCaptureImages = (queue: PendingCapture[]) => {
@@ -90,6 +131,15 @@ export const EditorTab = observer(function EditorTab() {
     const timer = window.setTimeout(() => setIsPageSwitching(false), 220);
     return () => window.clearTimeout(timer);
   }, [store.activePageId]);
+
+  useEffect(() => {
+    setPageInput(String(activePageIndex + 1));
+  }, [activePageIndex]);
+
+  useEffect(() => {
+    if (fitMode === "none") return;
+    setZoomPercent(Math.round(getFitZoom(fitMode)));
+  }, [fitMode, store.activePageId, store.pages.length]);
 
   const startAutoScroll = () => {
     if (autoScrollRafRef.current !== null) return;
@@ -335,6 +385,53 @@ export const EditorTab = observer(function EditorTab() {
             <i className="fa-solid fa-trash-can"></i>
             <span>Delete</span>
           </button>
+
+          <div className="toolbar-divider"></div>
+
+          <div className="toolbar-group page-tools-group">
+            <input
+              className="toolbar-page-input"
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              onBlur={goToPageFromInput}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") goToPageFromInput();
+              }}
+              aria-label="Page Number"
+            />
+            <span className="toolbar-page-total">/ {store.pages.length}</span>
+          </div>
+
+          <div className="toolbar-divider"></div>
+
+          <button className="tool-btn icon-only" onClick={() => setManualZoom(zoomPercent - 10)} aria-label="Zoom Out" title="Zoom Out">
+            <i className="fa-solid fa-minus"></i>
+          </button>
+          <button className="tool-btn toolbar-zoom-badge" onClick={() => setManualZoom(100)} title="Reset to 100%">
+            {zoomPercent}%
+          </button>
+          <button className="tool-btn icon-only" onClick={() => setManualZoom(zoomPercent + 10)} aria-label="Zoom In" title="Zoom In">
+            <i className="fa-solid fa-plus"></i>
+          </button>
+
+          <div className="toolbar-divider"></div>
+
+          <button
+            className={`tool-btn icon-only ${fitMode === "width" ? "active" : ""}`}
+            onClick={() => applyFitMode("width")}
+            title="Fit Width"
+            aria-label="Fit Width"
+          >
+            <i className="fa-solid fa-left-right"></i>
+          </button>
+          <button
+            className={`tool-btn icon-only ${fitMode === "height" ? "active" : ""}`}
+            onClick={() => applyFitMode("height")}
+            title="Fit Height"
+            aria-label="Fit Height"
+          >
+            <i className="fa-solid fa-up-down"></i>
+          </button>
         </div>
 
         <div className="toolbar-group">
@@ -419,7 +516,7 @@ export const EditorTab = observer(function EditorTab() {
                       store.swapAdjacentPages(idx);
                     }}
                   >
-                    <i className="fa-solid fa-arrows-rotate"></i>
+                    <i className="fa-solid fa-up-down"></i>
                   </button>
                 )}
               </div>
@@ -443,31 +540,41 @@ export const EditorTab = observer(function EditorTab() {
           </div>
         </aside>
 
-        <div className="editor-viewport">
-          <div className={`canvas-container-outer ${isPageSwitching ? "is-page-switching" : ""}`}>
+        <div className={`editor-canvas-panel ${fitMode === "height" ? "fit-height-mode" : ""}`}>
+          <div className="editor-viewport" ref={viewportRef}>
+          <div
+            className="canvas-scale-shell"
+            style={{ width: `${scaledWidth}px`, height: `${scaledHeight}px` }}
+          >
+            <div
+              className={`canvas-container-outer ${isPageSwitching ? "is-page-switching" : ""}`}
+              style={{ transform: `scale(${zoomScale})`, transformOrigin: "top left" }}
+            >
 
-            {/* Actual Canvas (Page) */}
-            <FabricCanvas
-              ref={canvasRef}
-              page={activePage}
-              onReady={setCanvasReady}
-              onPageChange={(pageId, json) => store.setPageFabricJSON(pageId, json)}
-              onTextSelectionChange={(state) => {
-                setIsBold(state.bold);
-                setIsItalic(state.italic);
-                setIsUnderline(state.underline);
-                setTextAlign(state.align);
-                setIsLocked(state.locked);
-              }}
-              headerText="Modular Closets Renderings"
-              headerProjectName={store.projectName}
-              headerCustomerName={store.customerName}
-              footerLogoUrl="https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg"
-              pageNumber={activePageIndex + 1}
-              totalPages={store.pages.length}
-              designerEmail={store.designerEmail}
-              designerMobile={store.mobileNo}
-            />
+              {/* Actual Canvas (Page) */}
+              <FabricCanvas
+                ref={canvasRef}
+                page={activePage}
+                onReady={setCanvasReady}
+                onPageChange={(pageId, json) => store.setPageFabricJSON(pageId, json)}
+                onTextSelectionChange={(state) => {
+                  setIsBold(state.bold);
+                  setIsItalic(state.italic);
+                  setIsUnderline(state.underline);
+                  setTextAlign(state.align);
+                  setIsLocked(state.locked);
+                }}
+                headerText="Modular Closets Renderings"
+                headerProjectName={store.projectName}
+                headerCustomerName={store.customerName}
+                footerLogoUrl="https://modularstudio.modularclosets-apps.com/design/assets/logo/logo2.svg"
+                pageNumber={activePageIndex + 1}
+                totalPages={store.pages.length}
+                designerEmail={store.designerEmail}
+                designerMobile={store.mobileNo}
+              />
+            </div>
+          </div>
           </div>
         </div>
 

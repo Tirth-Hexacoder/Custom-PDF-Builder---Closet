@@ -6,6 +6,7 @@ import { applyPageDecorations, bringDecorationsToFront, isDecorationId, isLocked
 const GUIDE_SNAP_THRESHOLD = 6;
 const MIN_IMAGE_CROP_SIZE = 24;
 const BOM_TABLE_GROUP_ID = "bom-table-group";
+const BOM_TABLE_USER_PLACED_KEY = "bomUserPlaced";
 type FabricTextObject = fabric.Text | fabric.IText | fabric.Textbox;
 type CanvasWithTopContext = fabric.Canvas & { contextTop?: CanvasRenderingContext2D | null };
 
@@ -29,20 +30,30 @@ function isBomTablePart(obj: fabric.Object | null | undefined) {
   return typeof id === "string" && id.startsWith("bom-") && id !== BOM_TABLE_GROUP_ID;
 }
 
+function isBomTableEntity(obj: fabric.Object | null | undefined) {
+  const id = obj?.data?.id;
+  return id === BOM_TABLE_GROUP_ID || isBomObject(obj);
+}
+
+function isBomUserPlaced(obj: fabric.Object | null | undefined) {
+  return !!obj?.data?.[BOM_TABLE_USER_PLACED_KEY];
+}
+
 function isUserLockedObject(obj: fabric.Object | null | undefined) {
   return !!obj && !!obj.data?.userLocked;
 }
 
 function setUserLockedState(obj: fabric.Object, locked: boolean) {
+  const isBomEntity = isBomTableEntity(obj);
   obj.set({
     selectable: true,
     evented: true,
-    hasControls: !locked,
+    hasControls: isBomEntity ? false : !locked,
     lockMovementX: locked,
     lockMovementY: locked,
-    lockScalingX: locked,
-    lockScalingY: locked,
-    lockRotation: locked,
+    lockScalingX: isBomEntity ? true : locked,
+    lockScalingY: isBomEntity ? true : locked,
+    lockRotation: isBomEntity ? true : locked,
     lockSkewingX: locked,
     lockSkewingY: locked,
     data: {
@@ -237,6 +248,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.setWidth(A4_PX.width);
   canvas.setHeight(A4_PX.height);
 
+  const ensureWhiteBackground = () => {
+    canvas.setBackgroundColor("#ffffff", () => undefined);
+  };
+
   const createImageCropControl = (side: CropSide, x: number, y: number, cursorStyle: string) =>
     new fabric.Control({
       x,
@@ -277,6 +292,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       evented: true,
       hasControls: false,
       hasBorders: true,
+      objectCaching: false,
       lockMovementX: locked,
       lockMovementY: locked,
       lockScalingX: true,
@@ -286,26 +302,132 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       lockSkewingY: true,
       hoverCursor: locked ? "default" : "move",
       moveCursor: locked ? "default" : "move",
-      data: { ...(obj.data || {}), id: BOM_TABLE_GROUP_ID }
+      data: {
+        ...(obj.data || {}),
+        id: BOM_TABLE_GROUP_ID,
+        [BOM_TABLE_USER_PLACED_KEY]: isBomUserPlaced(obj)
+      }
     });
+  };
+
+  const normalizeBomObjectTransform = (obj: fabric.Object) => {
+    const center = obj.getCenterPoint();
+    obj.set({
+      scaleX: 1,
+      scaleY: 1,
+      angle: 0,
+      skewX: 0,
+      skewY: 0
+    });
+    obj.setPositionByOrigin(center, "center", "center");
+    obj.setCoords();
+  };
+
+  const fitAndClampBomGroup = (obj: fabric.Object) => {
+    const pageWidth = canvas.getWidth();
+    const pageHeight = canvas.getHeight();
+    let bounds = obj.getBoundingRect(true, true);
+
+    if (bounds.width > pageWidth || bounds.height > pageHeight) {
+      const fitScale = Math.min(
+        (pageWidth - 8) / Math.max(bounds.width, 1),
+        (pageHeight - 8) / Math.max(bounds.height, 1),
+        1
+      );
+      if (fitScale < 1) {
+        const center = obj.getCenterPoint();
+        obj.set({
+          scaleX: (obj.scaleX || 1) * fitScale,
+          scaleY: (obj.scaleY || 1) * fitScale
+        });
+        obj.setPositionByOrigin(center, "center", "center");
+        obj.setCoords();
+        bounds = obj.getBoundingRect(true, true);
+      }
+    }
+
+    let offsetX = 0;
+    let offsetY = 0;
+    if (bounds.left < 0) offsetX = -bounds.left;
+    if (bounds.left + bounds.width > pageWidth) {
+      offsetX += pageWidth - (bounds.left + bounds.width);
+    }
+    if (bounds.top < 0) offsetY = -bounds.top;
+    if (bounds.top + bounds.height > pageHeight) {
+      offsetY += pageHeight - (bounds.top + bounds.height);
+    }
+    if (offsetX !== 0 || offsetY !== 0) {
+      obj.set({
+        left: (obj.left || 0) + offsetX,
+        top: (obj.top || 0) + offsetY
+      });
+      obj.setCoords();
+    }
+  };
+
+  const centerBomGroupHorizontally = (obj: fabric.Object) => {
+    const bounds = obj.getBoundingRect(true, true);
+    const desiredLeft = (canvas.getWidth() - bounds.width) / 2;
+    const delta = desiredLeft - bounds.left;
+    if (Math.abs(delta) < 0.5) return;
+    obj.set({ left: (obj.left || 0) + delta });
+    obj.setCoords();
   };
 
   const ensureBomTableGroup = () => {
     const existingGroup = canvas.getObjects().find((obj) => obj.data?.id === BOM_TABLE_GROUP_ID);
     if (existingGroup) {
+      const hadTransform =
+        Math.abs((existingGroup.scaleX || 1) - 1) > 0.001 ||
+        Math.abs((existingGroup.scaleY || 1) - 1) > 0.001 ||
+        Math.abs(existingGroup.angle || 0) > 0.01;
+      if (hadTransform) {
+        normalizeBomObjectTransform(existingGroup);
+      }
       applyBomGroupBehavior(existingGroup);
-      existingGroup.setCoords();
+      fitAndClampBomGroup(existingGroup);
+      if (!isBomUserPlaced(existingGroup)) {
+        centerBomGroupHorizontally(existingGroup);
+      }
       return;
     }
 
     const bomParts = canvas.getObjects().filter((obj) => isBomTablePart(obj));
     if (bomParts.length === 0) return;
 
+    bomParts.forEach((obj) => {
+      const hasTransform =
+        Math.abs((obj.scaleX || 1) - 1) > 0.001 ||
+        Math.abs((obj.scaleY || 1) - 1) > 0.001 ||
+        Math.abs(obj.angle || 0) > 0.01 ||
+        Math.abs(obj.skewX || 0) > 0.01 ||
+        Math.abs(obj.skewY || 0) > 0.01;
+      if (hasTransform) normalizeBomObjectTransform(obj);
+      obj.set({
+        selectable: false,
+        evented: false,
+        hasControls: false,
+        lockMovementX: true,
+        lockMovementY: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        lockRotation: true
+      });
+      obj.setCoords();
+    });
+
     const group = new fabric.Group(bomParts);
     bomParts.forEach((obj) => canvas.remove(obj));
+    group.set({
+      data: {
+        ...(group.data || {}),
+        [BOM_TABLE_USER_PLACED_KEY]: false
+      }
+    });
     applyBomGroupBehavior(group);
     canvas.add(group);
-    group.setCoords();
+    fitAndClampBomGroup(group);
+    centerBomGroupHorizontally(group);
   };
 
   let clipboard: fabric.Object | null = null;
@@ -494,9 +616,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     currentPageId = nextPage.id;
     isRestoring = true;
     canvas.clear();
-    canvas.setBackgroundColor("#fff", canvas.renderAll.bind(canvas));
+    ensureWhiteBackground();
     if (nextPage.fabricJSON) {
       canvas.loadFromJSON(nextPage.fabricJSON, () => {
+        ensureWhiteBackground();
         applyImageControlsToCanvas();
         ensureBomTableGroup();
         isRestoring = false;
@@ -507,6 +630,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       });
     } else {
       isRestoring = false;
+      ensureWhiteBackground();
       ensureHeaderFooter();
       if (nextPage.defaultImageUrl) {
         addDefaultImage(nextPage.defaultImageUrl, {
@@ -837,6 +961,14 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     const target = event.target as fabric.Object | undefined;
     if (!target) return;
     if (isUserLockedObject(target)) return;
+    if (target.data?.id === BOM_TABLE_GROUP_ID && !isBomUserPlaced(target)) {
+      target.set({
+        data: {
+          ...(target.data || {}),
+          [BOM_TABLE_USER_PLACED_KEY]: true
+        }
+      });
+    }
 
     const pageWidth = canvas.getWidth();
     const pageHeight = canvas.getHeight();
@@ -968,6 +1100,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   function onObjectRotating(event: fabric.IEvent) {
     const target = event.target as fabric.Object | undefined;
     if (!target) return;
+    if (isBomTableEntity(target)) return;
     if (isUserLockedObject(target)) return;
     const coords = target.oCoords?.mtr;
     if (!coords) return;
@@ -1021,6 +1154,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   if (page?.fabricJSON) {
     isRestoring = true;
     canvas.loadFromJSON(page.fabricJSON, () => {
+      ensureWhiteBackground();
       applyImageControlsToCanvas();
       ensureBomTableGroup();
       isRestoring = false;
@@ -1172,6 +1306,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       historyIndex -= 1;
       isRestoring = true;
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
+        ensureWhiteBackground();
         applyImageControlsToCanvas();
         ensureBomTableGroup();
         isRestoring = false;
@@ -1187,6 +1322,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       historyIndex += 1;
       isRestoring = true;
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
+        ensureWhiteBackground();
         applyImageControlsToCanvas();
         ensureBomTableGroup();
         isRestoring = false;
