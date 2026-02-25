@@ -2,13 +2,22 @@ import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
 import type { ExportOptions, Page, RenderImageOptions } from "../types";
-import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL } from "./pageDecorUtils";
+import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, FOOTER_ID, STAMP_ID } from "./pageDecorUtils";
 
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
 
 function setWhiteBackground(canvas: fabric.StaticCanvas) {
   canvas.setBackgroundColor("#ffffff", () => undefined);
+}
+
+function hasPhotoContent(canvas: fabric.StaticCanvas) {
+  return canvas.getObjects().some((obj) => {
+    if (obj.type !== "image") return false;
+    const id = obj.data?.id;
+    if (id === FOOTER_ID || id === STAMP_ID) return false;
+    return true;
+  });
 }
 
 // Add Image and Fit Inside a Page
@@ -270,15 +279,16 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     setWhiteBackground(canvas);
     canvas.renderAll();
 
+    const useJpeg = hasPhotoContent(canvas);
     const pageData = toDataUrl(canvas, {
       ...pageOptions,
-      format: "jpeg",
-      multiplier: 1.3,
-      quality: 0.8
+      format: useJpeg ? "jpeg" : "png",
+      multiplier: 1,
+      quality: useJpeg ? 0.68 : 0.92
     });
 
     if (pageCount > 0) doc.addPage();
-    doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
+    doc.addImage(pageData, useJpeg ? "JPEG" : "PNG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "SLOW");
 
     canvas.dispose();
     pageCount += 1;

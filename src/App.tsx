@@ -74,7 +74,9 @@ export default function App() {
           <div style={{ display: activeTab === "scene" ? "block" : "none", width: "100%", height: "100%" }}>
             <SceneTab isActive={activeTab === "scene"} />
           </div>
-          {activeTab === "editor" && <EditorTab />}
+          <div style={{ display: activeTab === "editor" ? "block" : "none", width: "100%", height: "100%" }}>
+            <EditorTab />
+          </div>
           {activeTab === "download" && <ExportTab />}
         </main>
       </div>
