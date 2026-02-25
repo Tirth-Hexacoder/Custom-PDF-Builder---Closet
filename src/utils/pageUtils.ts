@@ -4,6 +4,7 @@ import type { CreateCanvasOptions, FabricCanvasHandle, FabricJSON, Page } from "
 import { applyPageDecorations, isDecorationId, isLockedDecorationId } from "./pageDecorUtils";
 
 const GUIDE_SNAP_THRESHOLD = 6;
+const MIN_IMAGE_CROP_SIZE = 24;
 type FabricTextObject = fabric.Text | fabric.IText | fabric.Textbox;
 type CanvasWithTopContext = fabric.Canvas & { contextTop?: CanvasRenderingContext2D | null };
 
@@ -20,6 +21,85 @@ function isEditingTextObject(obj: fabric.Object | null | undefined): obj is fabr
 function isBomObject(obj: fabric.Object | null | undefined) {
   const id = obj?.data?.id;
   return typeof id === "string" && id.startsWith("bom-");
+}
+
+function isImageObject(obj: fabric.Object | null | undefined): obj is fabric.Image {
+  return !!obj && obj.type === "image";
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function ensureImageCropSourceSize(image: fabric.Image) {
+  const data = (image.data || {}) as Record<string, unknown>;
+  const element = image.getElement() as (HTMLImageElement & { naturalWidth?: number; naturalHeight?: number }) | null;
+  const sourceWidth = typeof data.cropSourceWidth === "number"
+    ? data.cropSourceWidth
+    : element?.naturalWidth || image.width || 0;
+  const sourceHeight = typeof data.cropSourceHeight === "number"
+    ? data.cropSourceHeight
+    : element?.naturalHeight || image.height || 0;
+  image.set({
+    data: {
+      ...data,
+      cropSourceWidth: sourceWidth,
+      cropSourceHeight: sourceHeight
+    }
+  });
+  return { sourceWidth, sourceHeight };
+}
+
+type CropSide = "left" | "right" | "top" | "bottom";
+
+function applyImageCropFromPointer(image: fabric.Image, pointer: { x: number; y: number }, side: CropSide) {
+  if (Math.abs(image.angle || 0) > 0.01) return false;
+  const { sourceWidth, sourceHeight } = ensureImageCropSourceSize(image);
+  if (!sourceWidth || !sourceHeight) return false;
+
+  const scaleX = Math.abs(image.scaleX || 1);
+  const scaleY = Math.abs(image.scaleY || 1);
+  const cropX = image.cropX || 0;
+  const cropY = image.cropY || 0;
+  const visibleWidth = image.width || sourceWidth;
+  const visibleHeight = image.height || sourceHeight;
+  const left = image.left || 0;
+  const top = image.top || 0;
+  const right = left + visibleWidth * scaleX;
+  const bottom = top + visibleHeight * scaleY;
+
+  if (side === "right") {
+    const nextWidth = clamp((pointer.x - left) / scaleX, MIN_IMAGE_CROP_SIZE, sourceWidth - cropX);
+    image.set({ width: nextWidth });
+  } else if (side === "left") {
+    const sourceRight = cropX + visibleWidth;
+    const desiredWidth = clamp((right - pointer.x) / scaleX, MIN_IMAGE_CROP_SIZE, sourceRight);
+    const nextCropX = clamp(sourceRight - desiredWidth, 0, sourceWidth - MIN_IMAGE_CROP_SIZE);
+    const nextWidth = clamp(sourceRight - nextCropX, MIN_IMAGE_CROP_SIZE, sourceWidth - nextCropX);
+    image.set({
+      cropX: nextCropX,
+      width: nextWidth,
+      left: right - nextWidth * scaleX
+    });
+  } else if (side === "bottom") {
+    const nextHeight = clamp((pointer.y - top) / scaleY, MIN_IMAGE_CROP_SIZE, sourceHeight - cropY);
+    image.set({ height: nextHeight });
+  } else {
+    const sourceBottom = cropY + visibleHeight;
+    const desiredHeight = clamp((bottom - pointer.y) / scaleY, MIN_IMAGE_CROP_SIZE, sourceBottom);
+    const nextCropY = clamp(sourceBottom - desiredHeight, 0, sourceHeight - MIN_IMAGE_CROP_SIZE);
+    const nextHeight = clamp(sourceBottom - nextCropY, MIN_IMAGE_CROP_SIZE, sourceHeight - nextCropY);
+    image.set({
+      cropY: nextCropY,
+      height: nextHeight,
+      top: bottom - nextHeight * scaleY
+    });
+  }
+
+  image.setCoords();
+  image.dirty = true;
+  image.canvas?.requestRenderAll();
+  return true;
 }
 
 // Rotation Icon Addition
@@ -71,6 +151,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
 
   let onPageChangeRef = onPageChange;
   let onReadyRef = onReady;
+  let onTextSelectionChangeRef = options.onTextSelectionChange;
 
   // Interactive Fabric canvas used by EditorTab for per-page editing.
   const canvas = new fabric.Canvas(host, {
@@ -126,6 +207,36 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.setZoom(1);
   canvas.setWidth(A4_PX.width);
   canvas.setHeight(A4_PX.height);
+
+  const createImageCropControl = (side: CropSide, x: number, y: number, cursorStyle: string) =>
+    new fabric.Control({
+      x,
+      y,
+      cursorStyle,
+      actionName: "crop",
+      actionHandler: (eventData, transform) => {
+        const target = transform.target;
+        if (!isImageObject(target) || !target.canvas) return false;
+        const pointer = target.canvas.getPointer(eventData as MouseEvent);
+        return applyImageCropFromPointer(target, pointer, side);
+      }
+    });
+
+  const applyImageControls = (obj: fabric.Object | null | undefined) => {
+    if (!isImageObject(obj)) return;
+    ensureImageCropSourceSize(obj);
+    obj.controls = {
+      ...fabric.Object.prototype.controls,
+      ml: createImageCropControl("left", -0.5, 0, "ew-resize"),
+      mr: createImageCropControl("right", 0.5, 0, "ew-resize"),
+      mt: createImageCropControl("top", 0, -0.5, "ns-resize"),
+      mb: createImageCropControl("bottom", 0, 0.5, "ns-resize")
+    };
+  };
+
+  const applyImageControlsToCanvas = () => {
+    canvas.getObjects().forEach((obj) => applyImageControls(obj));
+  };
 
   let clipboard: fabric.Object | null = null;
   let history: string[] = [];
@@ -206,6 +317,33 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     onPageChangeRef(currentPageId, JSON.parse(json));
   }
 
+  function toToolbarState(obj: fabric.Object | null | undefined) {
+    if (!isTextObject(obj) || isBomObject(obj)) {
+      return { bold: false, italic: false, underline: false, align: "left" as const };
+    }
+    const textObj = obj as FabricTextObject;
+    const align: "left" | "center" | "right" =
+      textObj.textAlign === "center" || textObj.textAlign === "right" ? textObj.textAlign : "left";
+    return {
+      bold: textObj.fontWeight === "bold" || Number(textObj.fontWeight) >= 600,
+      italic: textObj.fontStyle === "italic",
+      underline: !!textObj.underline,
+      align
+    };
+  }
+
+  function emitSelectionStyle() {
+    if (!onTextSelectionChangeRef) return;
+    const active = canvas.getActiveObject();
+    if (active?.type === "activeSelection") {
+      const selection = active as fabric.ActiveSelection;
+      const textTarget = selection.getObjects().find((obj) => isTextObject(obj) && !isBomObject(obj));
+      onTextSelectionChangeRef(toToolbarState(textTarget ?? null));
+      return;
+    }
+    onTextSelectionChangeRef(toToolbarState(active));
+  }
+
   function ensureHeaderFooter() {
     // Reapply fixed decorations after edits/page changes with stale-call protection.
     if (isDisposed) return;
@@ -248,6 +386,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
           left: (canvas.getWidth() - img.getScaledWidth()) / 2,
           top: topMargin + (maxHeight - img.getScaledHeight()) / 2
         });
+        applyImageControls(img);
         canvas.add(img);
         canvas.setActiveObject(img);
         ensureHeaderFooter();
@@ -268,10 +407,12 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     canvas.setBackgroundColor("#fff", canvas.renderAll.bind(canvas));
     if (nextPage.fabricJSON) {
       canvas.loadFromJSON(nextPage.fabricJSON, () => {
+        applyImageControlsToCanvas();
         isRestoring = false;
         ensureHeaderFooter();
         canvas.renderAll();
         seedHistoryFromCanvas();
+        emitSelectionStyle();
       });
     } else {
       isRestoring = false;
@@ -281,6 +422,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       }
       canvas.renderAll();
       seedHistoryFromCanvas();
+      emitSelectionStyle();
     }
   }
 
@@ -612,6 +754,24 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       centerSnappedY = true;
     }
 
+    const constrained = target.getBoundingRect(true, true);
+    let offsetX = 0;
+    let offsetY = 0;
+    if (constrained.left < 0) offsetX = -constrained.left;
+    if (constrained.left + constrained.width > pageWidth) {
+      offsetX = Math.min(offsetX, 0) + (pageWidth - (constrained.left + constrained.width));
+    }
+    if (constrained.top < 0) offsetY = -constrained.top;
+    if (constrained.top + constrained.height > pageHeight) {
+      offsetY = Math.min(offsetY, 0) + (pageHeight - (constrained.top + constrained.height));
+    }
+    if (offsetX !== 0 || offsetY !== 0) {
+      target.set({
+        left: (target.left ?? 0) + offsetX,
+        top: (target.top ?? 0) + offsetY
+      });
+    }
+
     target.setCoords();
 
     const updatedBounds = target.getBoundingRect(true, true);
@@ -652,6 +812,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   const onCanvasChanged = (event: fabric.IEvent) => {
     // Ignore decoration churn; store only real user/content changes.
     const target = event.target as fabric.Object | undefined;
+    if (isImageObject(target)) applyImageControls(target);
     const objectId = target?.data?.id;
     if (isApplyingDecorations) return;
     if (isLockedDecorationId(objectId)) return;
@@ -666,12 +827,17 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.on("before:render", clearGuideLayer);
   canvas.on("after:render", renderGuides);
   canvas.on("mouse:up", clearGuides);
+  canvas.on("selection:created", emitSelectionStyle);
+  canvas.on("selection:updated", emitSelectionStyle);
+  canvas.on("selection:cleared", emitSelectionStyle);
 
   onReadyRef?.(true);
+  emitSelectionStyle();
 
   if (page?.fabricJSON) {
     isRestoring = true;
     canvas.loadFromJSON(page.fabricJSON, () => {
+      applyImageControlsToCanvas();
       isRestoring = false;
       ensureHeaderFooter();
       canvas.renderAll();
@@ -689,21 +855,23 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   window.addEventListener("keydown", onClipboardShortcuts);
 
   const handle: FabricCanvasHandle = {
-    addText() {
+    addText(initialStyle) {
       const text = new fabric.IText("Editable text", {
         left: 64,
         top: 64,
         fill: "#1f2937",
         fontSize: 24,
         fontFamily: "Georgia",
-        fontWeight: "normal",
-        fontStyle: "normal",
-        underline: false
+        fontWeight: initialStyle?.bold ? "bold" : "normal",
+        fontStyle: initialStyle?.italic ? "italic" : "normal",
+        underline: !!initialStyle?.underline,
+        textAlign: initialStyle?.align || "left"
       });
       canvas.add(text);
       canvas.setActiveObject(text);
       canvas.requestRenderAll();
       pushHistory();
+      emitSelectionStyle();
     },
     setTextStyle(style) {
       const active = canvas.getActiveObject();
@@ -740,29 +908,23 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       canvas.requestRenderAll();
       if (active) active.setCoords();
       if (changedCanvas) pushHistory();
+      emitSelectionStyle();
     },
     alignObjects(align) {
-      const margin = 64;
-      const pageWidth = canvas.getWidth();
       const selected = canvas.getActiveObjects();
-      const targets = selected.length > 0 ? selected : canvas.getObjects();
+      const targets = selected.length > 0 ? selected : [canvas.getActiveObject()].filter(Boolean) as fabric.Object[];
+      let changed = false;
 
       targets.forEach((obj) => {
-        if (isBomObject(obj)) return;
-        const width = obj.getScaledWidth();
-        let left = obj.left ?? 0;
-        if (align === "left") left = margin;
-        if (align === "center") left = (pageWidth - width) / 2;
-        if (align === "right") left = pageWidth - width - margin;
-        obj.set({ left });
         if (isTextObject(obj)) {
           (obj as FabricTextObject).set({ textAlign: align });
+          changed = true;
         }
-        obj.setCoords();
       });
 
       canvas.requestRenderAll();
-      pushHistory();
+      if (changed) pushHistory();
+      emitSelectionStyle();
     },
     addImage(dataUrl) {
       fabric.Image.fromURL(
@@ -771,6 +933,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
           if (!img) return;
           img.scaleToWidth(300);
           img.set({ left: 64, top: 360 });
+          applyImageControls(img);
           canvas.add(img);
           canvas.setActiveObject(img);
           canvas.requestRenderAll();
@@ -817,8 +980,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       historyIndex -= 1;
       isRestoring = true;
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
+        applyImageControlsToCanvas();
         isRestoring = false;
         canvas.renderAll();
+        emitSelectionStyle();
       });
       if (historyIndex === 0) hasPageChanges = false;
       if (currentPageId) onPageChangeRef(currentPageId, JSON.parse(history[historyIndex]));
@@ -828,8 +993,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       historyIndex += 1;
       isRestoring = true;
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
+        applyImageControlsToCanvas();
         isRestoring = false;
         canvas.renderAll();
+        emitSelectionStyle();
       });
       hasPageChanges = historyIndex > 0;
       if (currentPageId) onPageChangeRef(currentPageId, JSON.parse(history[historyIndex]));
@@ -845,9 +1012,14 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   return {
     handle,
     loadPage,
-    setCallbacks(nextOnPageChange: (pageId: string, json: FabricJSON) => void, nextOnReady?: (ready: boolean) => void) {
+    setCallbacks(
+      nextOnPageChange: (pageId: string, json: FabricJSON) => void,
+      nextOnReady?: (ready: boolean) => void,
+      nextOnTextSelectionChange?: (state: { bold: boolean; italic: boolean; underline: boolean; align: "left" | "center" | "right" }) => void
+    ) {
       onPageChangeRef = nextOnPageChange;
       onReadyRef = nextOnReady;
+      onTextSelectionChangeRef = nextOnTextSelectionChange;
     },
     setHeaderFooter(next: {
       headerText?: string;

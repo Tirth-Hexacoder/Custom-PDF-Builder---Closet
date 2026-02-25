@@ -20,6 +20,9 @@ export const EditorTab = observer(function EditorTab() {
   const [fontSize, setFontSize] = useState(24);
   const [fontColor, setFontColor] = useState("#1f2937");
   const [textAlign, setTextAlign] = useState<"left" | "center" | "right">("left");
+  const [isBold, setIsBold] = useState(false);
+  const [isItalic, setIsItalic] = useState(false);
+  const [isUnderline, setIsUnderline] = useState(false);
 
   const activePage = store.pages.find((p) => p.id === store.activePageId) || store.pages[0];
   const activePageIndex = Math.max(
@@ -81,20 +84,48 @@ export const EditorTab = observer(function EditorTab() {
     <div className="editor-container">
       <div className="editor-toolbar">
         <div className="toolbar-group">
-          <button className="tool-btn" onClick={() => canvasRef.current?.addText()}>
+          <button
+            className="tool-btn"
+            onClick={() =>
+              canvasRef.current?.addText({
+                bold: isBold,
+                italic: isItalic,
+                underline: isUnderline,
+                align: textAlign
+              })
+            }
+          >
             <i className="fa-solid fa-font"></i>
             <span>Text</span>
           </button>
 
           <div className="toolbar-divider"></div>
 
-          <button className="tool-btn" onClick={() => canvasRef.current?.setTextStyle({ fontWeight: "bold" })}>
+          <button
+            className={`tool-btn ${isBold ? "active" : ""}`}
+            onClick={() => {
+              setIsBold((prev) => !prev);
+              canvasRef.current?.setTextStyle({ fontWeight: "bold" });
+            }}
+          >
             <i className="fa-solid fa-bold"></i>
           </button>
-          <button className="tool-btn" onClick={() => canvasRef.current?.setTextStyle({ fontStyle: "italic" })}>
+          <button
+            className={`tool-btn ${isItalic ? "active" : ""}`}
+            onClick={() => {
+              setIsItalic((prev) => !prev);
+              canvasRef.current?.setTextStyle({ fontStyle: "italic" });
+            }}
+          >
             <i className="fa-solid fa-italic"></i>
           </button>
-          <button className="tool-btn" onClick={() => canvasRef.current?.setTextStyle({ underline: true })}>
+          <button
+            className={`tool-btn ${isUnderline ? "active" : ""}`}
+            onClick={() => {
+              setIsUnderline((prev) => !prev);
+              canvasRef.current?.setTextStyle({ underline: true });
+            }}
+          >
             <i className="fa-solid fa-underline"></i>
           </button>
 
@@ -255,6 +286,12 @@ export const EditorTab = observer(function EditorTab() {
               page={activePage}
               onReady={setCanvasReady}
               onPageChange={(pageId, json) => store.setPageFabricJSON(pageId, json)}
+              onTextSelectionChange={(state) => {
+                setIsBold(state.bold);
+                setIsItalic(state.italic);
+                setIsUnderline(state.underline);
+                setTextAlign(state.align);
+              }}
               headerText="Modular Closets Renderings"
               headerProjectName={store.projectName}
               headerCustomerName={store.customerName}

@@ -31,7 +31,7 @@ export type UserRecord = {
 };
 
 export type FabricCanvasHandle = {
-  addText: () => void;
+  addText: (initialStyle?: { bold?: boolean; italic?: boolean; underline?: boolean; align?: "left" | "center" | "right" }) => void;
   setTextStyle: (style: { fontWeight?: string; fontStyle?: string; underline?: boolean; fill?: string; fontSize?: number }) => void;
   alignObjects: (align: "left" | "center" | "right") => void;
   addImage: (dataUrl: string) => void;
@@ -48,6 +48,7 @@ export type FabricCanvasProps = {
   page?: Page;
   onPageChange: (pageId: string, json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
+  onTextSelectionChange?: (state: { bold: boolean; italic: boolean; underline: boolean; align: "left" | "center" | "right" }) => void;
   headerText?: string;
   headerProjectName?: string;
   headerCustomerName?: string;
@@ -77,6 +78,7 @@ export type CreateCanvasOptions = {
   page?: Page;
   onPageChange: (pageId: string, json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
+  onTextSelectionChange?: (state: { bold: boolean; italic: boolean; underline: boolean; align: "left" | "center" | "right" }) => void;
   headerText?: string;
   headerProjectName?: string;
   headerCustomerName?: string;
