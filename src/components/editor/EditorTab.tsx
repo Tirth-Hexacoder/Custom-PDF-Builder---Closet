@@ -61,9 +61,7 @@ export const EditorTab = observer(function EditorTab() {
   const scaledHeight = Math.round(A4_PX.height * zoomScale);
 
   const getDraggedImageUrl = (event: React.DragEvent) =>
-    event.dataTransfer.getData(IMAGE_DRAG_MIME) ||
-    event.dataTransfer.getData("text/uri-list") ||
-    event.dataTransfer.getData("text/plain");
+    event.dataTransfer.getData(IMAGE_DRAG_MIME);
 
   const getFitZoom = (mode: "width" | "height") => {
     const viewport = viewportRef.current;
@@ -657,7 +655,6 @@ export const EditorTab = observer(function EditorTab() {
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.setData(IMAGE_DRAG_MIME, url);
-                  e.dataTransfer.setData("text/plain", url);
                   e.dataTransfer.effectAllowed = "copy";
                 }}
               >
