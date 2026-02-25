@@ -81,7 +81,6 @@ function moveOnlyObject(obj: fabric.Object) {
   obj.set({
     selectable: true,
     evented: true,
-    editable: false,
     hasControls: false,
     lockScalingX: true,
     lockScalingY: true,
@@ -169,9 +168,9 @@ function addOrUpdateContact(canvas: AnyCanvas, designerEmail?: string, designerM
     fontWeight: "600",
     lineHeight: 1.25,
     fill: "#000000",
-    textAlign: "center",
-    editable: false
+    textAlign: "center"
   });
+  (contact as fabric.Textbox & { editable?: boolean }).editable = false;
   contact.set({ data: { id: CONTACT_INFO_ID } });
   moveOnlyObject(contact);
   canvas.add(contact);

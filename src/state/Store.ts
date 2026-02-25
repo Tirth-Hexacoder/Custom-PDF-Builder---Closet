@@ -80,7 +80,7 @@ export class Store {
     this.pendingCaptures = [...this.pendingCaptures, { id: captureId, dataUrl }];
   }
 
-  // 
+  // Set Stored Data Of The Canvas (Page)
   setPageFabricJSON(pageId: string | null | undefined, json: FabricJSON) {
     if (!pageId) return;
     const idx = this.pages.findIndex((p) => p.id === pageId);
