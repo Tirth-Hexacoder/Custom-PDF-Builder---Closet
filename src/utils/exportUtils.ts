@@ -14,6 +14,18 @@ function setWhiteBackground(canvas: fabric.StaticCanvas) {
   canvas.setBackgroundColor("#ffffff", () => undefined);
 }
 
+function normalizeDimmedOpacityForExport(canvas: fabric.StaticCanvas) {
+  const visit = (obj: fabric.Object) => {
+    if (obj.data?.objectDimmed) {
+      obj.set({ opacity: 1 });
+    }
+    if (obj.type === "group") {
+      (obj as fabric.Group).getObjects().forEach((child) => visit(child as fabric.Object));
+    }
+  };
+  canvas.getObjects().forEach((obj) => visit(obj));
+}
+
 // Add Image and Fit Inside a Page
 function fitImageToPage(img: fabric.Image, canvas: fabric.StaticCanvas) {
   const margin = 40;
@@ -61,6 +73,7 @@ async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
     await new Promise<void>((resolve) => {
       canvas.loadFromJSON(page.fabricJSON, () => resolve());
     });
+    normalizeDimmedOpacityForExport(canvas);
     setWhiteBackground(canvas);
   } else if (page.defaultImageUrl) {
     await new Promise<void>((resolve) => {
