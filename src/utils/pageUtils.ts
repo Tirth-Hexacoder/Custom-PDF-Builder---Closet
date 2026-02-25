@@ -5,6 +5,7 @@ import { applyPageDecorations, bringDecorationsToFront, isDecorationId, isLocked
 
 const GUIDE_SNAP_THRESHOLD = 6;
 const MIN_IMAGE_CROP_SIZE = 24;
+const BOM_TABLE_GROUP_ID = "bom-table-group";
 type FabricTextObject = fabric.Text | fabric.IText | fabric.Textbox;
 type CanvasWithTopContext = fabric.Canvas & { contextTop?: CanvasRenderingContext2D | null };
 
@@ -21,6 +22,11 @@ function isEditingTextObject(obj: fabric.Object | null | undefined): obj is fabr
 function isBomObject(obj: fabric.Object | null | undefined) {
   const id = obj?.data?.id;
   return typeof id === "string" && id.startsWith("bom-");
+}
+
+function isBomTablePart(obj: fabric.Object | null | undefined) {
+  const id = obj?.data?.id;
+  return typeof id === "string" && id.startsWith("bom-") && id !== BOM_TABLE_GROUP_ID;
 }
 
 function isImageObject(obj: fabric.Object | null | undefined): obj is fabric.Image {
@@ -238,6 +244,43 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     canvas.getObjects().forEach((obj) => applyImageControls(obj));
   };
 
+  const applyBomGroupBehavior = (obj: fabric.Object) => {
+    obj.set({
+      selectable: true,
+      evented: true,
+      hasControls: false,
+      hasBorders: true,
+      lockMovementX: false,
+      lockMovementY: false,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockRotation: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
+      hoverCursor: "move",
+      moveCursor: "move",
+      data: { ...(obj.data || {}), id: BOM_TABLE_GROUP_ID }
+    });
+  };
+
+  const ensureBomTableGroup = () => {
+    const existingGroup = canvas.getObjects().find((obj) => obj.data?.id === BOM_TABLE_GROUP_ID);
+    if (existingGroup) {
+      applyBomGroupBehavior(existingGroup);
+      existingGroup.setCoords();
+      return;
+    }
+
+    const bomParts = canvas.getObjects().filter((obj) => isBomTablePart(obj));
+    if (bomParts.length === 0) return;
+
+    const group = new fabric.Group(bomParts);
+    bomParts.forEach((obj) => canvas.remove(obj));
+    applyBomGroupBehavior(group);
+    canvas.add(group);
+    group.setCoords();
+  };
+
   let clipboard: fabric.Object | null = null;
   let history: string[] = [];
   let historyIndex = -1;
@@ -423,6 +466,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     if (nextPage.fabricJSON) {
       canvas.loadFromJSON(nextPage.fabricJSON, () => {
         applyImageControlsToCanvas();
+        ensureBomTableGroup();
         isRestoring = false;
         ensureHeaderFooter();
         canvas.renderAll();
@@ -879,6 +923,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     isRestoring = true;
     canvas.loadFromJSON(page.fabricJSON, () => {
       applyImageControlsToCanvas();
+      ensureBomTableGroup();
       isRestoring = false;
       ensureHeaderFooter();
       canvas.renderAll();
@@ -1029,6 +1074,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       isRestoring = true;
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
         applyImageControlsToCanvas();
+        ensureBomTableGroup();
         isRestoring = false;
         ensureHeaderFooter();
         canvas.renderAll();
@@ -1043,6 +1089,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       isRestoring = true;
       canvas.loadFromJSON(JSON.parse(history[historyIndex]), () => {
         applyImageControlsToCanvas();
+        ensureBomTableGroup();
         isRestoring = false;
         ensureHeaderFooter();
         canvas.renderAll();
