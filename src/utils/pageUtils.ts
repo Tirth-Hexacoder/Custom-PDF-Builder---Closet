@@ -7,6 +7,7 @@ const GUIDE_SNAP_THRESHOLD = 6;
 const MIN_IMAGE_CROP_SIZE = 24;
 const BOM_TABLE_GROUP_ID = "bom-table-group";
 const BOM_TABLE_USER_PLACED_KEY = "bomUserPlaced";
+const OBJECT_DIMMED_KEY = "objectDimmed";
 type FabricTextObject = fabric.Text | fabric.IText | fabric.Textbox;
 type CanvasWithTopContext = fabric.Canvas & { contextTop?: CanvasRenderingContext2D | null };
 
@@ -43,6 +44,10 @@ function isUserLockedObject(obj: fabric.Object | null | undefined) {
   return !!obj && !!obj.data?.userLocked;
 }
 
+function isDimmedObject(obj: fabric.Object | null | undefined) {
+  return !!obj && !!obj.data?.[OBJECT_DIMMED_KEY];
+}
+
 function setUserLockedState(obj: fabric.Object, locked: boolean) {
   const isBomEntity = isBomTableEntity(obj);
   obj.set({
@@ -59,6 +64,17 @@ function setUserLockedState(obj: fabric.Object, locked: boolean) {
     data: {
       ...(obj.data || {}),
       userLocked: locked
+    }
+  });
+}
+
+function setObjectDimmedState(obj: fabric.Object, dimmed: boolean) {
+  setUserLockedState(obj, dimmed);
+  obj.set({
+    opacity: dimmed ? 0.1 : 1,
+    data: {
+      ...(obj.data || {}),
+      [OBJECT_DIMMED_KEY]: dimmed
     }
   });
 }
@@ -281,6 +297,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   const applyImageControlsToCanvas = () => {
     canvas.getObjects().forEach((obj) => {
       applyImageControls(obj);
+      if (isDimmedObject(obj)) {
+        setObjectDimmedState(obj, true);
+        return;
+      }
       if (isUserLockedObject(obj)) setUserLockedState(obj, true);
     });
   };
@@ -522,8 +542,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
 
   function toToolbarState(obj: fabric.Object | null | undefined) {
     const locked = isUserLockedObject(obj);
+    const dimmed = isDimmedObject(obj);
     if (!isTextObject(obj) || isBomObject(obj)) {
-      return { bold: false, italic: false, underline: false, align: "left" as const, locked };
+      return { bold: false, italic: false, underline: false, align: "left" as const, locked, dimmed };
     }
     const textObj = obj as FabricTextObject;
     const align: "left" | "center" | "right" =
@@ -533,7 +554,8 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       italic: textObj.fontStyle === "italic",
       underline: !!textObj.underline,
       align,
-      locked
+      locked,
+      dimmed
     };
   }
 
@@ -546,7 +568,8 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       const lockTarget = selection.getObjects()[0] ?? null;
       const state = toToolbarState(textTarget ?? lockTarget);
       const allLocked = selection.getObjects().every((obj) => isUserLockedObject(obj));
-      onTextSelectionChangeRef({ ...state, locked: allLocked });
+      const allDimmed = selection.getObjects().every((obj) => isDimmedObject(obj));
+      onTextSelectionChangeRef({ ...state, locked: allLocked, dimmed: allDimmed });
       return;
     }
     onTextSelectionChangeRef(toToolbarState(active));
@@ -784,10 +807,33 @@ export function createPageCanvas(options: CreateCanvasOptions) {
 
     const editableTargets = targets.filter((obj) => !isLockedDecorationId(obj.data?.id));
     if (editableTargets.length === 0) return;
-    const shouldUnlock = editableTargets.every((obj) => isUserLockedObject(obj));
+    const allLocked = editableTargets.every((obj) => isUserLockedObject(obj));
+    const hasDimmed = editableTargets.some((obj) => isDimmedObject(obj));
+    const shouldUnlock = allLocked && !hasDimmed;
 
     editableTargets.forEach((obj) => {
       setUserLockedState(obj, !shouldUnlock);
+      obj.setCoords();
+    });
+
+    canvas.requestRenderAll();
+    pushHistory();
+    emitSelectionStyle();
+  }
+
+  function toggleObjectVisibility() {
+    const activeObjects = canvas.getActiveObjects();
+    const targets = activeObjects.length > 0
+      ? activeObjects
+      : [canvas.getActiveObject()].filter(Boolean) as fabric.Object[];
+    if (targets.length === 0) return;
+
+    const editableTargets = targets.filter((obj) => !isLockedDecorationId(obj.data?.id));
+    if (editableTargets.length === 0) return;
+    const shouldUndim = editableTargets.every((obj) => isDimmedObject(obj));
+
+    editableTargets.forEach((obj) => {
+      setObjectDimmedState(obj, !shouldUndim);
       obj.setCoords();
     });
 
@@ -1342,6 +1388,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     toggleLock() {
       toggleObjectLock();
     },
+    toggleVisibility() {
+      toggleObjectVisibility();
+    },
     deleteActive() {
       removeActiveObjects();
     },
@@ -1362,6 +1411,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         underline: boolean;
         align: "left" | "center" | "right";
         locked: boolean;
+        dimmed: boolean;
       }) => void
     ) {
       onPageChangeRef = nextOnPageChange;

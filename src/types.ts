@@ -43,6 +43,7 @@ export type FabricCanvasHandle = {
   layerUp: () => void;
   layerDown: () => void;
   toggleLock: () => void;
+  toggleVisibility: () => void;
   deleteActive: () => void;
   getPageImage: () => Promise<string>;
 };
@@ -57,6 +58,7 @@ export type FabricCanvasProps = {
     underline: boolean;
     align: "left" | "center" | "right";
     locked: boolean;
+    dimmed: boolean;
   }) => void;
   headerText?: string;
   headerProjectName?: string;
@@ -93,6 +95,7 @@ export type CreateCanvasOptions = {
     underline: boolean;
     align: "left" | "center" | "right";
     locked: boolean;
+    dimmed: boolean;
   }) => void;
   headerText?: string;
   headerProjectName?: string;

@@ -38,6 +38,7 @@ export const EditorTab = observer(function EditorTab() {
   const [isItalic, setIsItalic] = useState(false);
   const [isUnderline, setIsUnderline] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [isDimmed, setIsDimmed] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [pageInput, setPageInput] = useState("1");
   const [fitMode, setFitMode] = useState<"none" | "width" | "height">("none");
@@ -402,6 +403,13 @@ export const EditorTab = observer(function EditorTab() {
           >
             <i className={`fa-solid ${isLocked ? "fa-lock" : "fa-lock-open"}`}></i>
           </button>
+          <button
+            className={`tool-btn ${isDimmed ? "active" : ""}`}
+            onClick={() => canvasRef.current?.toggleVisibility()}
+            title={isDimmed ? "Show Object" : "Dim & Lock Object"}
+          >
+            <i className={`fa-solid ${isDimmed ? "fa-eye-slash" : "fa-eye"}`}></i>
+          </button>
 
           <div className="toolbar-divider"></div>
 
@@ -623,6 +631,7 @@ export const EditorTab = observer(function EditorTab() {
                   setIsUnderline(state.underline);
                   setTextAlign(state.align);
                   setIsLocked(state.locked);
+                  setIsDimmed(state.dimmed);
                 }}
                 headerText="Modular Closets Renderings"
                 headerProjectName={store.projectName}
