@@ -40,6 +40,8 @@ export type FabricCanvasHandle = {
   duplicate: () => void;
   undo: () => void;
   redo: () => void;
+  layerUp: () => void;
+  layerDown: () => void;
   deleteActive: () => void;
   getPageImage: () => Promise<string>;
 };

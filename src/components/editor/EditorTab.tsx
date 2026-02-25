@@ -4,6 +4,7 @@ import type { FabricCanvasHandle, Page, PendingCapture } from "../../types";
 import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
 import { renderPagePreview } from "../../utils/pagePreviewUtils";
+import { rotate } from "three/tsl";
 
 export const EditorTab = observer(function EditorTab() {
 
@@ -307,6 +308,15 @@ export const EditorTab = observer(function EditorTab() {
               />
             </div>
           </div>
+
+          <div className="toolbar-divider"></div>
+
+          <button className="tool-btn" onClick={() => canvasRef.current?.layerUp()} title="Layer Up">
+            <i className="fa-solid fa-arrow-up-from-bracket"></i>
+          </button>
+          <button className="tool-btn" onClick={() => canvasRef.current?.layerDown()} title="Layer Down">
+            <i className="fa-solid fa-arrow-up-from-bracket" id="layerDown"></i>
+          </button>
 
           <div className="toolbar-divider"></div>
 

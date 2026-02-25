@@ -595,6 +595,30 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     }
   }
 
+  function moveLayer(direction: "up" | "down") {
+    const activeObjects = canvas.getActiveObjects();
+    const targets = activeObjects.length > 0
+      ? activeObjects
+      : [canvas.getActiveObject()].filter(Boolean) as fabric.Object[];
+    if (targets.length === 0) return;
+
+    let changed = false;
+    targets.forEach((obj) => {
+      if (isLockedDecorationId(obj.data?.id)) return;
+      if (direction === "up") {
+        canvas.bringForward(obj);
+      } else {
+        canvas.sendBackwards(obj);
+      }
+      changed = true;
+    });
+
+    if (!changed) return;
+    bringDecorationsToFront(canvas);
+    canvas.requestRenderAll();
+    pushHistory();
+  }
+
   function clearGuides() {
     guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
     rotationGuideState = { active: false, angle: 0, point: null };
@@ -1097,6 +1121,12 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       });
       hasPageChanges = historyIndex > 0;
       if (currentPageId) onPageChangeRef(currentPageId, JSON.parse(history[historyIndex]));
+    },
+    layerUp() {
+      moveLayer("up");
+    },
+    layerDown() {
+      moveLayer("down");
     },
     deleteActive() {
       removeActiveObjects();
