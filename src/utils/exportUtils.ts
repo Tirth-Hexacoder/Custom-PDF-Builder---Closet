@@ -2,22 +2,13 @@ import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
 import type { ExportOptions, Page, RenderImageOptions } from "../types";
-import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, FOOTER_ID, STAMP_ID } from "./pageDecorUtils";
+import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
 
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
 
 function setWhiteBackground(canvas: fabric.StaticCanvas) {
   canvas.setBackgroundColor("#ffffff", () => undefined);
-}
-
-function hasPhotoContent(canvas: fabric.StaticCanvas) {
-  return canvas.getObjects().some((obj) => {
-    if (obj.type !== "image") return false;
-    const id = obj.data?.id;
-    if (id === FOOTER_ID || id === STAMP_ID) return false;
-    return true;
-  });
 }
 
 // Add Image and Fit Inside a Page
@@ -197,7 +188,7 @@ async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   });
 
   canvas.renderAll();
-  const data = canvas.toDataURL({ format: "jpeg", quality: 0.82, multiplier: 1 });
+  const data = canvas.toDataURL({ format: "jpeg", quality: 0.78, multiplier: 1 });
   canvas.dispose();
   return data;
 }
@@ -262,6 +253,8 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
   });
 
   let pageCount = 0;
+  const scaleX = PDF_PAGE_WIDTH / A4_PX.width;
+  const scaleY = PDF_PAGE_HEIGHT / A4_PX.height;
   const coverLogoUrl = options.footerLogoUrl || DEFAULT_FOOTER_LOGO_URL;
   const coverImage = await buildPdfCoverImage(coverLogoUrl);
   doc.addImage(coverImage, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
@@ -276,19 +269,85 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
 
     const canvas = await buildCanvasForPage(pages[i], pageOptions);
 
+    const textObjects = flattenObjects(canvas.getObjects())
+      .filter((obj) => isFabricTextObject(obj))
+      .filter((obj) => !obj.group)
+      .map((obj) => obj as fabric.Text | fabric.IText | fabric.Textbox);
+
+    const overlayTargets = textObjects.filter((obj) => Math.abs(getTextAngle(obj)) <= 0.01);
+
+    const textOverlays: Array<{
+      text: string;
+      x: number;
+      y: number;
+      maxWidth?: number;
+      angle: number;
+      align: "left" | "center" | "right";
+      fontSize: number;
+      lineHeight: number;
+      fontFamily: "helvetica" | "times" | "courier";
+      fontStyle: "normal" | "bold" | "italic" | "bolditalic";
+      color: { r: number; g: number; b: number };
+    }> = [];
+
+    overlayTargets.forEach((obj) => {
+      const text = (obj.text || "").trim();
+      if (!text) return;
+      const bounds = obj.getBoundingRect(true, true);
+      const align = obj.textAlign === "center" || obj.textAlign === "right" ? obj.textAlign : "left";
+      const x = align === "center" ? bounds.left + bounds.width / 2 : align === "right" ? bounds.left + bounds.width : bounds.left;
+      textOverlays.push({
+        text: obj.text || "",
+        x,
+        y: bounds.top,
+        maxWidth: obj.type === "textbox" ? obj.getScaledWidth() : undefined,
+        angle: getTextAngle(obj),
+        align,
+        fontSize: (obj.fontSize || 16) * Math.abs(obj.scaleY || 1),
+        lineHeight: obj.lineHeight || 1.16,
+        fontFamily: mapFontFamily(obj.fontFamily),
+        fontStyle: mapFontStyle(obj.fontWeight, obj.fontStyle),
+        color: parseColor(obj.fill)
+      });
+    });
+
+    const headerGroup = canvas.getObjects().find((obj) => obj.data?.id === HEADER_ID);
+    if (headerGroup) headerGroup.set({ visible: false });
+    overlayTargets.forEach((obj) => obj.set({ visible: false }));
     setWhiteBackground(canvas);
     canvas.renderAll();
 
-    const useJpeg = hasPhotoContent(canvas);
     const pageData = toDataUrl(canvas, {
       ...pageOptions,
-      format: useJpeg ? "jpeg" : "png",
-      multiplier: 1,
-      quality: useJpeg ? 0.68 : 0.92
+      format: "jpeg",
+      multiplier: 1.5,
+      quality: 0.86
     });
 
     if (pageCount > 0) doc.addPage();
-    doc.addImage(pageData, useJpeg ? "JPEG" : "PNG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "SLOW");
+    doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
+    drawSelectableHeader(doc, pageOptions, scaleY);
+
+    textOverlays.forEach((item) => {
+      doc.setFont(item.fontFamily, item.fontStyle);
+      doc.setFontSize(Math.max(6, item.fontSize * scaleY));
+      doc.setLineHeightFactor(item.lineHeight);
+      doc.setTextColor(item.color.r, item.color.g, item.color.b);
+
+      const textOptions: {
+        baseline: "top";
+        align: "left" | "center" | "right";
+        angle?: number;
+        maxWidth?: number;
+      } = {
+        baseline: "top",
+        align: item.align
+      };
+
+      if (Math.abs(item.angle) > 0.01) textOptions.angle = item.angle;
+      if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = item.maxWidth * scaleX;
+      doc.text(item.text, item.x * scaleX, item.y * scaleY, textOptions);
+    });
 
     canvas.dispose();
     pageCount += 1;
