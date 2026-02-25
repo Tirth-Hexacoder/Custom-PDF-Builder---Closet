@@ -6,6 +6,9 @@ import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./page
 
 const PDF_PAGE_WIDTH = 595;
 const PDF_PAGE_HEIGHT = 842;
+const EXPORT_PAGE_MULTIPLIER = 1;
+const EXPORT_PAGE_QUALITY = 0.86;
+const EXPORT_COVER_QUALITY = 0.86;
 
 function setWhiteBackground(canvas: fabric.StaticCanvas) {
   canvas.setBackgroundColor("#ffffff", () => undefined);
@@ -160,6 +163,17 @@ function getTextAngle(obj: fabric.Object) {
   return obj.angle || 0;
 }
 
+function isFiniteNumber(value: number) {
+  return Number.isFinite(value) && !Number.isNaN(value);
+}
+
+function normalizeAngle(angle: number) {
+  let value = angle % 360;
+  if (value > 180) value -= 360;
+  if (value < -180) value += 360;
+  return value;
+}
+
 // Generating The First Page of Exported PDF
 async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   const el = document.createElement("canvas");
@@ -188,7 +202,7 @@ async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   });
 
   canvas.renderAll();
-  const data = canvas.toDataURL({ format: "jpeg", quality: 0.78, multiplier: 1 });
+  const data = canvas.toDataURL({ format: "jpeg", quality: EXPORT_COVER_QUALITY, multiplier: 1 });
   canvas.dispose();
   return data;
 }
@@ -210,7 +224,12 @@ function buildHeaderParts(options: RenderImageOptions) {
 }
 
 // Selectable Text Of The Header In Exported PDF
-function drawSelectableHeader(doc: jsPDF, options: RenderImageOptions, scaleY: number) {
+function drawSelectableHeader(
+  doc: jsPDF,
+  options: RenderImageOptions,
+  scaleY: number,
+  renderingMode: "fill" | "invisible" = "fill"
+) {
   const parts = buildHeaderParts(options);
   if (parts.length === 0) return;
 
@@ -230,7 +249,7 @@ function drawSelectableHeader(doc: jsPDF, options: RenderImageOptions, scaleY: n
     doc.setFont("helvetica", part.fontStyle);
     doc.setFontSize(fontSize);
     doc.setTextColor(color.r, color.g, color.b);
-    doc.text(part.text, cursorX, y, { baseline: "top" });
+    doc.text(part.text, cursorX, y, { baseline: "top", renderingMode });
     cursorX += doc.getTextWidth(part.text);
   });
 }
@@ -274,8 +293,6 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
       .filter((obj) => !obj.group)
       .map((obj) => obj as fabric.Text | fabric.IText | fabric.Textbox);
 
-    const overlayTargets = textObjects.filter((obj) => Math.abs(getTextAngle(obj)) <= 0.01);
-
     const textOverlays: Array<{
       text: string;
       x: number;
@@ -288,45 +305,54 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
       fontFamily: "helvetica" | "times" | "courier";
       fontStyle: "normal" | "bold" | "italic" | "bolditalic";
       color: { r: number; g: number; b: number };
+      renderingMode: "fill" | "invisible";
     }> = [];
+    const hideForRaster: fabric.Object[] = [];
 
-    overlayTargets.forEach((obj) => {
+    textObjects.forEach((obj) => {
       const text = (obj.text || "").trim();
       if (!text) return;
-      const bounds = obj.getBoundingRect(true, true);
+      const angle = normalizeAngle(getTextAngle(obj));
+      const isRotated = Math.abs(angle) > 0.01;
       const align = obj.textAlign === "center" || obj.textAlign === "right" ? obj.textAlign : "left";
-      const x = align === "center" ? bounds.left + bounds.width / 2 : align === "right" ? bounds.left + bounds.width : bounds.left;
+      const originX: "left" | "center" | "right" = align;
+      const anchor = obj.getPointByOrigin(originX, "top");
+      const x = anchor.x;
+      const y = anchor.y;
+      if (!isFiniteNumber(x) || !isFiniteNumber(y)) return;
+      if (!isRotated) hideForRaster.push(obj);
       textOverlays.push({
         text: obj.text || "",
         x,
-        y: bounds.top,
-        maxWidth: obj.type === "textbox" ? obj.getScaledWidth() : undefined,
-        angle: getTextAngle(obj),
+        y,
+        maxWidth: !isRotated && obj.type === "textbox" ? obj.getScaledWidth() : undefined,
+        angle,
         align,
         fontSize: (obj.fontSize || 16) * Math.abs(obj.scaleY || 1),
         lineHeight: obj.lineHeight || 1.16,
         fontFamily: mapFontFamily(obj.fontFamily),
         fontStyle: mapFontStyle(obj.fontWeight, obj.fontStyle),
-        color: parseColor(obj.fill)
+        color: parseColor(obj.fill),
+        renderingMode: isRotated ? "invisible" : "fill"
       });
     });
 
     const headerGroup = canvas.getObjects().find((obj) => obj.data?.id === HEADER_ID);
     if (headerGroup) headerGroup.set({ visible: false });
-    overlayTargets.forEach((obj) => obj.set({ visible: false }));
+    hideForRaster.forEach((obj) => obj.set({ visible: false }));
     setWhiteBackground(canvas);
     canvas.renderAll();
 
     const pageData = toDataUrl(canvas, {
       ...pageOptions,
       format: "jpeg",
-      multiplier: 1.5,
-      quality: 0.86
+      multiplier: EXPORT_PAGE_MULTIPLIER,
+      quality: EXPORT_PAGE_QUALITY
     });
 
     if (pageCount > 0) doc.addPage();
-    doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
-    drawSelectableHeader(doc, pageOptions, scaleY);
+    doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "SLOW");
+    drawSelectableHeader(doc, pageOptions, scaleY, "fill");
 
     textOverlays.forEach((item) => {
       doc.setFont(item.fontFamily, item.fontStyle);
@@ -339,12 +365,14 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
         align: "left" | "center" | "right";
         angle?: number;
         maxWidth?: number;
+        renderingMode: "fill" | "invisible";
       } = {
         baseline: "top",
-        align: item.align
+        align: item.align,
+        renderingMode: item.renderingMode
       };
 
-      if (Math.abs(item.angle) > 0.01) textOptions.angle = item.angle;
+      if (Math.abs(item.angle) > 0.01) textOptions.angle = -item.angle;
       if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = item.maxWidth * scaleX;
       doc.text(item.text, item.x * scaleX, item.y * scaleY, textOptions);
     });
