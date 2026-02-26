@@ -8,6 +8,7 @@ type StoreLike = {
   designerEmail: string;
   date: string;
   mobileNo: string;
+  userType: string;
   activePageId: string | null;
   tableData: TableData;
   pages: Page[];
@@ -27,7 +28,8 @@ export function buildDocumentSnapshot(source: StoreLike): ProposalDocumentSnapsh
       customerName: source.customerName,
       designerEmail: source.designerEmail,
       date: source.date,
-      mobileNo: source.mobileNo
+      mobileNo: source.mobileNo,
+      userType: source.userType
     },
     tableData: clone(source.tableData),
     pages: clone(source.pages)

@@ -8,6 +8,8 @@ import { renderPagePreview } from "../../utils/pagePreviewUtils";
 
 const IMAGE_DRAG_MIME = "application/x-pdf-builder-image-url";
 
+const getPageDefaultImageUrl = (page?: Page) => page?.defaultImage?.url || page?.defaultImageUrl || "";
+
 export const EditorTab = observer(function EditorTab() {
 
   const store = useStore();
@@ -21,6 +23,7 @@ export const EditorTab = observer(function EditorTab() {
   const autoScrollRafRef = useRef<number | null>(null);
   const autoScrollVelocityRef = useRef(0);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const canvasShellRef = useRef<HTMLDivElement | null>(null);
   const previewQueueRef = useRef<string[]>([]);
   const previewProcessingRef = useRef(false);
   const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageUrl?: string }>>({});
@@ -39,6 +42,10 @@ export const EditorTab = observer(function EditorTab() {
   const [isUnderline, setIsUnderline] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [isDimmed, setIsDimmed] = useState(false);
+  const [selectedOpacity, setSelectedOpacity] = useState(1);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [canEditTextStyle, setCanEditTextStyle] = useState(false);
+  const [isTextInsertMode, setIsTextInsertMode] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [pageInput, setPageInput] = useState("1");
   const [fitMode, setFitMode] = useState<"none" | "width" | "height">("none");
@@ -51,7 +58,7 @@ export const EditorTab = observer(function EditorTab() {
   const trayImages = Array.from(
     new Set(
       [
-        ...store.pages.map((page) => page.defaultImageUrl || ""),
+        ...store.pages.map((page) => getPageDefaultImageUrl(page)),
         ...store.images.map((img) => img.url || "")
       ].filter((url): url is string => !!url)
     )
@@ -156,6 +163,23 @@ export const EditorTab = observer(function EditorTab() {
   }, [fitMode, store.activePageId, store.pages.length]);
 
   useEffect(() => {
+    canvasRef.current?.setInsertTextMode?.(!!isTextInsertMode);
+  }, [isTextInsertMode]);
+
+  useEffect(() => {
+    if (!isTextInsertMode) return;
+    const onMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest(".text-insert-tool")) return;
+      if (canvasShellRef.current?.contains(target)) return;
+      setIsTextInsertMode(false);
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    return () => window.removeEventListener("mousedown", onMouseDown);
+  }, [isTextInsertMode]);
+
+  useEffect(() => {
     if (!canvasReady || !canvasRef.current || !store.activePageId) return;
     const pendingIndex = pendingTrayDropsRef.current.findIndex((item) => item.pageId === store.activePageId);
     if (pendingIndex < 0) return;
@@ -221,10 +245,10 @@ export const EditorTab = observer(function EditorTab() {
       const changed =
         !previous ||
         previous.fabricJSON !== page.fabricJSON ||
-        previous.defaultImageUrl !== page.defaultImageUrl;
+        previous.defaultImageUrl !== getPageDefaultImageUrl(page);
       previewSourceRef.current[page.id] = {
         fabricJSON: page.fabricJSON,
-        defaultImageUrl: page.defaultImageUrl
+        defaultImageUrl: getPageDefaultImageUrl(page)
       };
       if (!changed) return;
       if (!previewQueueRef.current.includes(page.id)) {
@@ -244,15 +268,8 @@ export const EditorTab = observer(function EditorTab() {
       <div className="editor-toolbar">
         <div className="toolbar-group">
           <button
-            className="tool-btn"
-            onClick={() =>
-              canvasRef.current?.addText({
-                bold: isBold,
-                italic: isItalic,
-                underline: isUnderline,
-                align: textAlign
-              })
-            }
+            className={`tool-btn text-insert-tool ${isTextInsertMode ? "active" : ""}`}
+            onClick={() => setIsTextInsertMode((prev) => !prev)}
           >
             <i className="fa-solid fa-font"></i>
             <span>Text</span>
@@ -262,6 +279,7 @@ export const EditorTab = observer(function EditorTab() {
 
           <button
             className={`tool-btn ${isBold ? "active" : ""}`}
+            disabled={!canEditTextStyle}
             onClick={() => {
               setIsBold((prev) => !prev);
               canvasRef.current?.setTextStyle({ fontWeight: "bold" });
@@ -271,6 +289,7 @@ export const EditorTab = observer(function EditorTab() {
           </button>
           <button
             className={`tool-btn ${isItalic ? "active" : ""}`}
+            disabled={!canEditTextStyle}
             onClick={() => {
               setIsItalic((prev) => !prev);
               canvasRef.current?.setTextStyle({ fontStyle: "italic" });
@@ -280,6 +299,7 @@ export const EditorTab = observer(function EditorTab() {
           </button>
           <button
             className={`tool-btn ${isUnderline ? "active" : ""}`}
+            disabled={!canEditTextStyle}
             onClick={() => {
               setIsUnderline((prev) => !prev);
               canvasRef.current?.setTextStyle({ underline: true });
@@ -295,6 +315,7 @@ export const EditorTab = observer(function EditorTab() {
             <div className="font-size-control">
               <button
                 className="font-size-btn"
+                disabled={!canEditTextStyle}
                 onClick={() => {
                   const next = Math.max(8, fontSize - 2);
                   setFontSize(next);
@@ -310,6 +331,7 @@ export const EditorTab = observer(function EditorTab() {
                 value={fontSize}
                 min={8}
                 max={120}
+                disabled={!canEditTextStyle}
                 onChange={(e) => {
                   const val = Number(e.target.value);
                   const next = Number.isFinite(val) ? val : fontSize;
@@ -319,6 +341,7 @@ export const EditorTab = observer(function EditorTab() {
               />
               <button
                 className="font-size-btn"
+                disabled={!canEditTextStyle}
                 onClick={() => {
                   const next = Math.min(120, fontSize + 2);
                   setFontSize(next);
@@ -336,6 +359,7 @@ export const EditorTab = observer(function EditorTab() {
           <div className="toolbar-group" role="group" aria-label="Text alignment">
             <button
               className={`tool-btn icon-only ${textAlign === "left" ? "active" : ""}`}
+              disabled={!canEditTextStyle}
               onClick={() => {
                 setTextAlign("left");
                 canvasRef.current?.alignObjects("left");
@@ -346,6 +370,7 @@ export const EditorTab = observer(function EditorTab() {
             </button>
             <button
               className={`tool-btn icon-only ${textAlign === "center" ? "active" : ""}`}
+              disabled={!canEditTextStyle}
               onClick={() => {
                 setTextAlign("center");
                 canvasRef.current?.alignObjects("center");
@@ -356,6 +381,7 @@ export const EditorTab = observer(function EditorTab() {
             </button>
             <button
               className={`tool-btn icon-only ${textAlign === "right" ? "active" : ""}`}
+              disabled={!canEditTextStyle}
               onClick={() => {
                 setTextAlign("right");
                 canvasRef.current?.alignObjects("right");
@@ -374,6 +400,7 @@ export const EditorTab = observer(function EditorTab() {
               <input
                 type="color"
                 value={fontColor}
+                disabled={!canEditTextStyle}
                 style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', cursor: 'pointer', left: 0, top: 0 }}
                 onChange={(e) => {
                   setFontColor(e.target.value);
@@ -385,10 +412,10 @@ export const EditorTab = observer(function EditorTab() {
 
           <div className="toolbar-divider"></div>
 
-          <button className="tool-btn" onClick={() => canvasRef.current?.layerUp()} title="Layer Up">
+          <button className="tool-btn" disabled={!hasSelection} onClick={() => canvasRef.current?.layerUp()} title="Layer Up">
             <i className="fa-solid fa-arrow-up-from-bracket"></i>
           </button>
-          <button className="tool-btn" onClick={() => canvasRef.current?.layerDown()} title="Layer Down">
+          <button className="tool-btn" disabled={!hasSelection} onClick={() => canvasRef.current?.layerDown()} title="Layer Down">
             <i className="fa-solid fa-arrow-up-from-bracket" id="layerDown"></i>
           </button>
 
@@ -396,6 +423,7 @@ export const EditorTab = observer(function EditorTab() {
 
           <button
             className={`tool-btn ${isLocked ? "active" : ""}`}
+            disabled={!hasSelection}
             onClick={() => canvasRef.current?.toggleLock()}
             title={isLocked ? "Unlock" : "Lock"}
           >
@@ -403,15 +431,34 @@ export const EditorTab = observer(function EditorTab() {
           </button>
           <button
             className={`tool-btn ${isDimmed ? "active" : ""}`}
+            disabled={!hasSelection}
             onClick={() => canvasRef.current?.toggleVisibility()}
             title={isDimmed ? "Show Object" : "Dim & Lock Object"}
           >
             <i className={`fa-solid ${isDimmed ? "fa-eye-slash" : "fa-eye"}`}></i>
           </button>
+          <div className="toolbar-group opacity-group">
+            <span className="toolbar-label">OPACITY</span>
+            <input
+              type="range"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={selectedOpacity}
+              disabled={!hasSelection || isDimmed}
+              className="opacity-slider"
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setSelectedOpacity(value);
+                canvasRef.current?.setOpacity(value);
+              }}
+            />
+            <span className="opacity-value">{Math.round(selectedOpacity * 100)}%</span>
+          </div>
 
           <div className="toolbar-divider"></div>
 
-          <button className="tool-btn" style={{ color: '#ef4444' }} onClick={() => canvasRef.current?.deleteActive()}>
+          <button className="tool-btn" disabled={!hasSelection} style={{ color: '#ef4444' }} onClick={() => canvasRef.current?.deleteActive()}>
             <i className="fa-solid fa-trash-can"></i>
             <span>Delete</span>
           </button>
@@ -614,7 +661,24 @@ export const EditorTab = observer(function EditorTab() {
           >
             <div
               className={`canvas-container-outer ${isPageSwitching ? "is-page-switching" : ""}`}
-              style={{ transform: `scale(${zoomScale})`, transformOrigin: "top left" }}
+              ref={canvasShellRef}
+              onClick={(event) => {
+                if (!isTextInsertMode) return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                const left = (event.clientX - rect.left) / zoomScale;
+                const top = (event.clientY - rect.top) / zoomScale;
+                canvasRef.current?.addText({
+                  bold: isBold,
+                  italic: isItalic,
+                  underline: isUnderline,
+                  align: textAlign
+                }, { left, top });
+                setIsTextInsertMode(false);
+              }}
+              style={{
+                transform: `scale(${zoomScale})`,
+                transformOrigin: "top left"
+              }}
             >
 
               {/* Actual Canvas (Page) */}
@@ -630,6 +694,9 @@ export const EditorTab = observer(function EditorTab() {
                   setTextAlign(state.align);
                   setIsLocked(state.locked);
                   setIsDimmed(state.dimmed);
+                  setSelectedOpacity(state.opacity || 1);
+                  setHasSelection(state.hasSelection);
+                  setCanEditTextStyle(state.canEditTextStyle);
                 }}
                 headerText="Modular Closets Renderings"
                 headerProjectName={store.projectName}

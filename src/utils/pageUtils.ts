@@ -1,6 +1,6 @@
 import { A4_PX } from "@closet/core";
 import { fabric } from "fabric";
-import type { CreateCanvasOptions, FabricCanvasHandle, FabricJSON, Page } from "../types";
+import type { CreateCanvasOptions, FabricCanvasHandle, FabricJSON, Page, SceneImageInput, SceneImageNote } from "../types";
 import { applyPageDecorations, bringDecorationsToFront, isDecorationId, isLockedDecorationId } from "./pageDecorUtils";
 
 const GUIDE_SNAP_THRESHOLD = 6;
@@ -48,6 +48,11 @@ function isDimmedObject(obj: fabric.Object | null | undefined) {
   return !!obj && !!obj.data?.[OBJECT_DIMMED_KEY];
 }
 
+function getObjectOpacity(obj: fabric.Object | null | undefined) {
+  if (!obj) return 1;
+  return typeof obj.opacity === "number" ? obj.opacity : 1;
+}
+
 function setUserLockedState(obj: fabric.Object, locked: boolean) {
   const isBomEntity = isBomTableEntity(obj);
   obj.set({
@@ -85,6 +90,24 @@ function isImageObject(obj: fabric.Object | null | undefined): obj is fabric.Ima
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function resolvePageDefaultImage(page?: Page) {
+  if (!page) return null;
+  if (page.defaultImage?.url) return page.defaultImage;
+  if (page.defaultImageUrl) {
+    return {
+      url: page.defaultImageUrl,
+      type: "2D Default" as const,
+      notes: [],
+      baseUrl: ""
+    } satisfies SceneImageInput;
+  }
+  return null;
+}
+
+function isDefaultImageNoteObject(obj: fabric.Object | null | undefined) {
+  return !!obj && !!obj.data && obj.data.source === "default-image-note";
 }
 
 function ensureImageCropSourceSize(image: fabric.Image) {
@@ -263,6 +286,23 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.setZoom(1);
   canvas.setWidth(A4_PX.width);
   canvas.setHeight(A4_PX.height);
+
+  let insertTextModeActive = false;
+
+  const applyInsertTextCursor = () => {
+    const cursor = insertTextModeActive ? "crosshair" : "default";
+    canvas.defaultCursor = cursor;
+    canvas.hoverCursor = cursor;
+    canvas.moveCursor = cursor;
+    const c = canvas as fabric.Canvas & {
+      upperCanvasEl?: HTMLCanvasElement;
+      lowerCanvasEl?: HTMLCanvasElement;
+    };
+    const upper = c.upperCanvasEl;
+    const lower = c.lowerCanvasEl;
+    if (upper) upper.style.cursor = cursor;
+    if (lower) lower.style.cursor = cursor;
+  };
 
   const ensureWhiteBackground = () => {
     canvas.setBackgroundColor("#ffffff", () => undefined);
@@ -541,10 +581,22 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   }
 
   function toToolbarState(obj: fabric.Object | null | undefined) {
+    const hasSelection = !!obj;
     const locked = isUserLockedObject(obj);
     const dimmed = isDimmedObject(obj);
+    const opacity = getObjectOpacity(obj);
     if (!isTextObject(obj) || isBomObject(obj)) {
-      return { bold: false, italic: false, underline: false, align: "left" as const, locked, dimmed };
+      return {
+        bold: false,
+        italic: false,
+        underline: false,
+        align: "left" as const,
+        locked,
+        dimmed,
+        opacity,
+        hasSelection,
+        canEditTextStyle: false
+      };
     }
     const textObj = obj as FabricTextObject;
     const align: "left" | "center" | "right" =
@@ -555,7 +607,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       underline: !!textObj.underline,
       align,
       locked,
-      dimmed
+      dimmed,
+      opacity,
+      hasSelection,
+      canEditTextStyle: true
     };
   }
 
@@ -569,7 +624,21 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       const state = toToolbarState(textTarget ?? lockTarget);
       const allLocked = selection.getObjects().every((obj) => isUserLockedObject(obj));
       const allDimmed = selection.getObjects().every((obj) => isDimmedObject(obj));
-      onTextSelectionChangeRef({ ...state, locked: allLocked, dimmed: allDimmed });
+      const canEditTextStyle =
+        selection.getObjects().length > 0 &&
+        selection.getObjects().every((obj) => isTextObject(obj) && !isBomObject(obj));
+      const averageOpacity =
+        selection.getObjects().length > 0
+          ? selection.getObjects().reduce((sum, obj) => sum + getObjectOpacity(obj), 0) / selection.getObjects().length
+          : 1;
+      onTextSelectionChangeRef({
+        ...state,
+        locked: allLocked,
+        dimmed: allDimmed,
+        opacity: averageOpacity,
+        hasSelection: selection.getObjects().length > 0,
+        canEditTextStyle
+      });
       return;
     }
     onTextSelectionChangeRef(toToolbarState(active));
@@ -601,10 +670,92 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     });
   }
 
-  function addDefaultImage(url: string, opts?: { recordHistory?: boolean; onComplete?: () => void }) {
+  function syncNotesForDefaultImage(img: fabric.Image, notes: SceneImageNote[]) {
+    const existingNotes = canvas
+      .getObjects()
+      .filter((obj) => isDefaultImageNoteObject(obj))
+      .filter((obj) => typeof obj.data?.noteId === "string") as fabric.Textbox[];
+    const existingById = new Map(existingNotes.map((obj) => [String(obj.data?.noteId), obj]));
+    const activeNoteIds = new Set<string>();
+
+    if (!Array.isArray(notes) || notes.length === 0) {
+      existingNotes.forEach((noteObj) => canvas.remove(noteObj));
+      return;
+    }
+
+    const left = img.left || 0;
+    const top = img.top || 0;
+    const width = img.getScaledWidth();
+    const height = img.getScaledHeight();
+    notes.forEach((note) => {
+      if (!note || !note.text) return;
+      if (!note.id) return;
+      activeNoteIds.add(note.id);
+      const xPercent = clamp(Number(note.xPercent) || 0, 0, 100);
+      const yPercent = clamp(Number(note.yPercent) || 0, 0, 100);
+      const payload = {
+        left: left + (xPercent / 100) * width,
+        top: top + (yPercent / 100) * height,
+        fill: note.fontColor || "#111827",
+        fontSize: Number(note.fontSize) || 18,
+        fontFamily: note.fontType || "Georgia",
+        editable: true
+      };
+      const existing = existingById.get(note.id);
+      if (existing) {
+        existing.set({
+          ...payload,
+          text: note.text
+        });
+        existing.setCoords();
+        return;
+      }
+      const text = new fabric.Textbox(note.text, {
+        ...payload,
+        data: {
+          id: `image-note-${note.id}`,
+          source: "default-image-note",
+          noteId: note.id
+        }
+      });
+      canvas.add(text);
+    });
+
+    existingNotes.forEach((obj) => {
+      const noteId = String(obj.data?.noteId || "");
+      if (!noteId || activeNoteIds.has(noteId)) return;
+      canvas.remove(obj);
+    });
+  }
+
+  function syncDefaultImageMetadata(defaultImage?: SceneImageInput | null) {
+    if (!defaultImage?.url) {
+      const staleNoteObjects = canvas.getObjects().filter((obj) => isDefaultImageNoteObject(obj));
+      staleNoteObjects.forEach((obj) => canvas.remove(obj));
+      return;
+    }
+    const imageObject = canvas.getObjects().find((obj) => {
+      if (obj.type !== "image") return false;
+      if (obj.data?.defaultImageUrl === defaultImage.url) return true;
+      return false;
+    }) as fabric.Image | undefined
+      ?? (canvas.getObjects().find((obj) => obj.type === "image") as fabric.Image | undefined);
+    if (!imageObject) return;
+    imageObject.set({
+      data: {
+        ...(imageObject.data || {}),
+        id: "default-page-image",
+        source: "default-image",
+        defaultImageUrl: defaultImage.url
+      }
+    });
+    syncNotesForDefaultImage(imageObject, defaultImage.notes || []);
+  }
+
+  function addDefaultImage(defaultImage: SceneImageInput, opts?: { recordHistory?: boolean; onComplete?: () => void }) {
     // Auto-place a default scene image inside printable content area.
     fabric.Image.fromURL(
-      url,
+      defaultImage.url,
       (img) => {
         if (!img || isDisposed) return;
         const margin = 40;
@@ -620,8 +771,17 @@ export function createPageCanvas(options: CreateCanvasOptions) {
           left: (canvas.getWidth() - img.getScaledWidth()) / 2,
           top: topMargin + (maxHeight - img.getScaledHeight()) / 2
         });
+        img.set({
+          data: {
+            ...(img.data || {}),
+            id: "default-page-image",
+            source: "default-image",
+            defaultImageUrl: defaultImage.url
+          }
+        });
         applyImageControls(img);
         canvas.add(img);
+        syncNotesForDefaultImage(img, defaultImage.notes || []);
         canvas.setActiveObject(img);
         ensureHeaderFooter();
         if (!isDisposed) canvas.requestRenderAll();
@@ -641,10 +801,12 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     canvas.clear();
     ensureWhiteBackground();
     if (nextPage.fabricJSON) {
+      const defaultImage = resolvePageDefaultImage(nextPage);
       canvas.loadFromJSON(nextPage.fabricJSON, () => {
         ensureWhiteBackground();
         applyImageControlsToCanvas();
         ensureBomTableGroup();
+        syncDefaultImageMetadata(defaultImage);
         isRestoring = false;
         ensureHeaderFooter();
         canvas.renderAll();
@@ -655,8 +817,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       isRestoring = false;
       ensureWhiteBackground();
       ensureHeaderFooter();
-      if (nextPage.defaultImageUrl) {
-        addDefaultImage(nextPage.defaultImageUrl, {
+      const defaultImage = resolvePageDefaultImage(nextPage);
+      if (defaultImage?.url) {
+        addDefaultImage(defaultImage, {
           recordHistory: false,
           onComplete: () => {
             seedHistoryFromCanvas();
@@ -1198,11 +1361,13 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   emitSelectionStyle();
 
   if (page?.fabricJSON) {
+    const defaultImage = resolvePageDefaultImage(page);
     isRestoring = true;
     canvas.loadFromJSON(page.fabricJSON, () => {
       ensureWhiteBackground();
       applyImageControlsToCanvas();
       ensureBomTableGroup();
+      syncDefaultImageMetadata(defaultImage);
       isRestoring = false;
       ensureHeaderFooter();
       canvas.renderAll();
@@ -1210,8 +1375,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     });
   } else {
     ensureHeaderFooter();
-    if (page?.defaultImageUrl) {
-      addDefaultImage(page.defaultImageUrl, {
+    const defaultImage = resolvePageDefaultImage(page);
+    if (defaultImage?.url) {
+      addDefaultImage(defaultImage, {
         recordHistory: false,
         onComplete: () => {
           seedHistoryFromCanvas();
@@ -1227,10 +1393,12 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   window.addEventListener("keydown", onClipboardShortcuts);
 
   const handle: FabricCanvasHandle = {
-    addText(initialStyle) {
+    addText(initialStyle, at) {
+      const left = Math.max(8, Math.min(canvas.getWidth() - 8, at?.left ?? 64));
+      const top = Math.max(8, Math.min(canvas.getHeight() - 8, at?.top ?? 64));
       const text = new fabric.IText("Editable text", {
-        left: 64,
-        top: 64,
+        left,
+        top,
         fill: "#1f2937",
         fontSize: 24,
         fontFamily: "Georgia",
@@ -1280,6 +1448,33 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       canvas.requestRenderAll();
       if (active) active.setCoords();
       if (changedCanvas) pushHistory();
+      emitSelectionStyle();
+    },
+    setOpacity(opacityValue) {
+      const activeObjects = canvas.getActiveObjects();
+      const targets = activeObjects.length > 0
+        ? activeObjects
+        : [canvas.getActiveObject()].filter(Boolean) as fabric.Object[];
+      if (targets.length === 0) return;
+      const value = Math.max(0.05, Math.min(1, opacityValue));
+      let changed = false;
+
+      targets.forEach((obj) => {
+        if (isLockedDecorationId(obj.data?.id)) return;
+        obj.set({
+          opacity: value,
+          data: {
+            ...(obj.data || {}),
+            [OBJECT_DIMMED_KEY]: false
+          }
+        });
+        obj.setCoords();
+        changed = true;
+      });
+
+      if (!changed) return;
+      canvas.requestRenderAll();
+      pushHistory();
       emitSelectionStyle();
     },
     alignObjects(align) {
@@ -1391,6 +1586,11 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     toggleVisibility() {
       toggleObjectVisibility();
     },
+    setInsertTextMode(enabled) {
+      insertTextModeActive = enabled;
+      applyInsertTextCursor();
+      canvas.requestRenderAll();
+    },
     deleteActive() {
       removeActiveObjects();
     },
@@ -1412,6 +1612,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         align: "left" | "center" | "right";
         locked: boolean;
         dimmed: boolean;
+        opacity: number;
+        hasSelection: boolean;
+        canEditTextStyle: boolean;
       }) => void
     ) {
       onPageChangeRef = nextOnPageChange;

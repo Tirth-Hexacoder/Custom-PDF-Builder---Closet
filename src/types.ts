@@ -7,6 +7,7 @@ export type Page = {
   name: string;
   fabricJSON: FabricJSON;
   defaultImageUrl?: string;
+  defaultImage?: SceneImageInput;
 };
 
 export type PendingCapture = {
@@ -20,6 +21,31 @@ export type ProjectImage = {
   url: string;
 };
 
+export type SceneImageType =
+  | "2D"
+  | "2D Default"
+  | "3D"
+  | "Stretched"
+  | "Wall"
+  | "Isometric";
+
+export type SceneImageNote = {
+  id: string;
+  text: string;
+  xPercent: number;
+  yPercent: number;
+  fontSize: number;
+  fontColor: string;
+  fontType: string;
+};
+
+export type SceneImageInput = {
+  url: string;
+  type: SceneImageType;
+  notes: SceneImageNote[];
+  baseUrl: string;
+};
+
 export type UserRecord = {
   projectId: string;
   projectName: string;
@@ -27,12 +53,17 @@ export type UserRecord = {
   designerEmail: string;
   date: string;
   mobileNo: string;
+  userType?: "Designer" | "Retailer" | "retail" | "retailDesigner";
   images: ProjectImage[];
 };
 
 export type FabricCanvasHandle = {
-  addText: (initialStyle?: { bold?: boolean; italic?: boolean; underline?: boolean; align?: "left" | "center" | "right" }) => void;
+  addText: (
+    initialStyle?: { bold?: boolean; italic?: boolean; underline?: boolean; align?: "left" | "center" | "right" },
+    at?: { left: number; top: number }
+  ) => void;
   setTextStyle: (style: { fontWeight?: string; fontStyle?: string; underline?: boolean; fill?: string; fontSize?: number }) => void;
+  setOpacity: (opacity: number) => void;
   alignObjects: (align: "left" | "center" | "right") => void;
   addImage: (dataUrl: string) => void;
   copy: () => void;
@@ -44,6 +75,7 @@ export type FabricCanvasHandle = {
   layerDown: () => void;
   toggleLock: () => void;
   toggleVisibility: () => void;
+  setInsertTextMode: (enabled: boolean) => void;
   deleteActive: () => void;
   getPageImage: () => Promise<string>;
 };
@@ -59,6 +91,9 @@ export type FabricCanvasProps = {
     align: "left" | "center" | "right";
     locked: boolean;
     dimmed: boolean;
+    opacity: number;
+    hasSelection: boolean;
+    canEditTextStyle: boolean;
   }) => void;
   headerText?: string;
   headerProjectName?: string;
@@ -96,6 +131,9 @@ export type CreateCanvasOptions = {
     align: "left" | "center" | "right";
     locked: boolean;
     dimmed: boolean;
+    opacity: number;
+    hasSelection: boolean;
+    canEditTextStyle: boolean;
   }) => void;
   headerText?: string;
   headerProjectName?: string;
@@ -147,6 +185,7 @@ export type ProposalMeta = {
   designerEmail?: string;
   date?: string;
   mobileNo?: string;
+  userType?: string;
 };
 
 export type ProposalDocumentSnapshot = {

@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
-import type { ExportOptions, Page, RenderImageOptions } from "../types";
+import type { ExportOptions, Page, RenderImageOptions, SceneImageNote } from "../types";
 import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
 
 const PDF_PAGE_WIDTH = 595;
@@ -65,6 +65,39 @@ function createExportCanvas() {
   return canvas;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getDefaultImageUrl(page: Page) {
+  return page.defaultImage?.url || page.defaultImageUrl || "";
+}
+
+function getDefaultImageNotes(page: Page) {
+  return page.defaultImage?.notes || [];
+}
+
+function addImageNotes(canvas: fabric.StaticCanvas, img: fabric.Image, notes: SceneImageNote[]) {
+  if (!Array.isArray(notes) || notes.length === 0) return;
+  const left = img.left || 0;
+  const top = img.top || 0;
+  const width = img.getScaledWidth();
+  const height = img.getScaledHeight();
+  notes.forEach((note) => {
+    if (!note?.text) return;
+    const xPercent = clamp(Number(note.xPercent) || 0, 0, 100);
+    const yPercent = clamp(Number(note.yPercent) || 0, 0, 100);
+    const text = new fabric.Textbox(note.text, {
+      left: left + (xPercent / 100) * width,
+      top: top + (yPercent / 100) * height,
+      fill: note.fontColor || "#111827",
+      fontSize: Number(note.fontSize) || 18,
+      fontFamily: note.fontType || "Georgia"
+    });
+    canvas.add(text);
+  });
+}
+
 // Loads Data From Fabric JSON OR Adds Image To a Page
 async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
   const canvas = createExportCanvas();
@@ -75,14 +108,15 @@ async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
     });
     normalizeDimmedOpacityForExport(canvas);
     setWhiteBackground(canvas);
-  } else if (page.defaultImageUrl) {
+  } else if (getDefaultImageUrl(page)) {
     await new Promise<void>((resolve) => {
       fabric.Image.fromURL(
-        page.defaultImageUrl!,
+        getDefaultImageUrl(page),
         (img) => {
           if (img) {
             fitImageToPage(img, canvas);
             canvas.add(img);
+            addImageNotes(canvas, img, getDefaultImageNotes(page));
           }
           resolve();
         },

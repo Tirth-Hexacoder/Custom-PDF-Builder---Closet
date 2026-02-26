@@ -2,11 +2,24 @@ import { makeAutoObservable } from "mobx";
 import userData from "../data/userData.json";
 import imageList from "../data/imageList.json";
 import tableData from "../data/table.json";
-import type { FabricJSON, Page, PendingCapture, ProjectImage, ProposalDocumentSnapshot, TableData, UserRecord } from "../types";
+import type {
+  FabricJSON,
+  Page,
+  PendingCapture,
+  ProjectImage,
+  ProposalDocumentSnapshot,
+  SceneImageInput,
+  SceneImageType,
+  TableData,
+  UserRecord
+} from "../types";
 import { createBomPages } from "../utils/bomTableUtils";
 import { buildDocumentSnapshot } from "../utils/documentAdapter";
 
 const SESSION_DOC_KEY = "pdf_builder_document_snapshot_v1";
+const DESIGNER_IMAGE_ORDER: SceneImageType[] = ["2D Default", "2D", "Stretched", "Isometric", "3D", "Wall"];
+const NON_DESIGNER_IMAGE_ORDER: SceneImageType[] = ["Stretched", "Isometric", "3D", "2D Default", "2D", "Wall"];
+const IMAGE_TYPE_CYCLE: SceneImageType[] = ["2D Default", "2D", "Stretched", "Isometric", "3D", "Wall"];
 
 export class Store {
   projectId = "";
@@ -15,7 +28,9 @@ export class Store {
   designerEmail = "";
   date = "";
   mobileNo = "";
+  userType: "Designer" | "Retailer" | "retail" | "retailDesigner" = "Designer";
   images: ProjectImage[] = [];
+  imageURL: SceneImageInput[] = [];
 
   pages: Page[] = [];
   activePageId: string | null = null;
@@ -68,15 +83,18 @@ export class Store {
     this.designerEmail = snapshot.meta?.designerEmail || "";
     this.date = snapshot.meta?.date || "";
     this.mobileNo = snapshot.meta?.mobileNo || "";
+    this.userType = (snapshot.meta?.userType as "Designer" | "Retailer" | "retail" | "retailDesigner") || "Designer";
     this.tableData = {
       rows: (snapshot.tableData?.rows || []).map((row) => ({ ...row })),
       grandTotal: snapshot.tableData?.grandTotal || ""
     };
+    const imageByUrl = new Map(this.getDefaultImageUrls().map((item) => [item.url, item]));
     this.pages = snapshot.pages.map((page, index) => ({
+      defaultImage: page.defaultImage || (page.defaultImageUrl ? imageByUrl.get(page.defaultImageUrl) : undefined),
       id: page.id || crypto.randomUUID(),
       name: page.name || `Page ${index + 1}`,
       fabricJSON: page.fabricJSON ? JSON.parse(JSON.stringify(page.fabricJSON)) : null,
-      defaultImageUrl: page.defaultImageUrl
+      defaultImageUrl: page.defaultImageUrl || page.defaultImage?.url
     }));
     const activeExists = this.pages.some((page) => page.id === snapshot.activePageId);
     this.activePageId = activeExists ? snapshot.activePageId : this.pages[0]?.id ?? null;
@@ -85,12 +103,13 @@ export class Store {
 
   // Setup Default Pages as Per Number of Images
   setupDefaultPages() {
-    const images = this.getDefaultImageUrls();
-    const imagePages = images.map((url, index) => ({
+    this.imageURL = this.getOrderedDefaultImages();
+    const imagePages = this.imageURL.map((image, index) => ({
       id: crypto.randomUUID(),
       name: `Page ${index + 1}`,
       fabricJSON: null,
-      defaultImageUrl: url
+      defaultImageUrl: image.url,
+      defaultImage: image
     }));
     const bomPages = createBomPages(this.tableData);
     this.pages = [...imagePages, ...bomPages];
@@ -99,7 +118,49 @@ export class Store {
 
   // Get Image List From Json Data
   getDefaultImageUrls() {
-    return imageList as string[];
+    const source = imageList as unknown;
+    if (!Array.isArray(source)) return [];
+    return source
+      .map((item, index) => {
+        if (typeof item === "string") {
+          return {
+            url: item,
+            type: IMAGE_TYPE_CYCLE[index % IMAGE_TYPE_CYCLE.length],
+            notes: [],
+            baseUrl: ""
+          } satisfies SceneImageInput;
+        }
+        if (!item || typeof item !== "object") return null;
+        const candidate = item as Partial<SceneImageInput>;
+        const url = typeof candidate.url === "string" ? candidate.url : "";
+        if (!url) return null;
+        const type = IMAGE_TYPE_CYCLE.includes(candidate.type as SceneImageType)
+          ? (candidate.type as SceneImageType)
+          : IMAGE_TYPE_CYCLE[index % IMAGE_TYPE_CYCLE.length];
+        return {
+          url,
+          type,
+          notes: Array.isArray(candidate.notes) ? candidate.notes : [],
+          baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl : ""
+        } satisfies SceneImageInput;
+      })
+      .filter((item): item is SceneImageInput => !!item);
+  }
+
+  private getOrderedDefaultImages() {
+    const list = this.getDefaultImageUrls();
+    const isDesigner = this.userType.toLowerCase() === "designer";
+    const order = isDesigner ? DESIGNER_IMAGE_ORDER : NON_DESIGNER_IMAGE_ORDER;
+    const orderIndex = new Map(order.map((type, index) => [type, index]));
+
+    return [...list].sort((a, b) => {
+      const aIdx = orderIndex.get(a.type);
+      const bIdx = orderIndex.get(b.type);
+      if (aIdx === undefined && bIdx === undefined) return 0;
+      if (aIdx === undefined) return 1;
+      if (bIdx === undefined) return -1;
+      return aIdx - bIdx;
+    });
   }
 
   // Load User Data From Json
@@ -112,6 +173,7 @@ export class Store {
     this.designerEmail = firstUser.designerEmail;
     this.date = firstUser.date;
     this.mobileNo = firstUser.mobileNo;
+    this.userType = firstUser.userType || "Designer";
     this.images = firstUser.images ?? [];
   }
 

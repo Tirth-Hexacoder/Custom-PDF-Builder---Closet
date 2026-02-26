@@ -645,6 +645,12 @@ button {
   background: #f1f5f9;
 }
 
+.tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .tool-btn.active {
   background: #eff6ff;
   color: #2563eb;
@@ -706,6 +712,23 @@ button {
 
 .font-size-btn:hover {
   background: #e2e8f0;
+}
+
+.opacity-group {
+  gap: 8px;
+}
+
+.opacity-slider {
+  width: 92px;
+  accent-color: #2563eb;
+}
+
+.opacity-value {
+  min-width: 38px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: right;
 }
 
 .preview-header {
