@@ -260,6 +260,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   fabric.Object.prototype.cornerSize = 8;
   fabric.Object.prototype.borderColor = "#2563eb";
   fabric.Object.prototype.padding = 4;
+  fabric.Object.prototype.centeredRotation = true;
 
   const renderRotationIcon = (
     ctx: CanvasRenderingContext2D,
@@ -296,6 +297,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.setZoom(1);
   canvas.setWidth(A4_PX.width);
   canvas.setHeight(A4_PX.height);
+  canvas.centeredRotation = true;
 
   let insertTextModeActive = false;
 
@@ -536,6 +538,119 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     angle: 0,
     point: null as null | { x: number; y: number }
   };
+  let rotationInputEl: HTMLInputElement | null = null;
+
+  function canShowRotationControls(target: fabric.Object | null | undefined) {
+    if (!target) return false;
+    if (isBomTableEntity(target)) return false;
+    if (isLockedDecorationId(target.data?.id)) return false;
+    return true;
+  }
+
+  function ensureRotationInputElement() {
+    if (rotationInputEl || typeof document === "undefined") return;
+    const container = host.parentElement;
+    if (!container) return;
+    if (getComputedStyle(container).position === "static") {
+      container.style.position = "relative";
+    }
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "1";
+    input.min = "-360";
+    input.max = "360";
+    input.title = "Set rotation angle";
+    input.style.position = "absolute";
+    input.style.width = "62px";
+    input.style.height = "24px";
+    input.style.padding = "2px 6px";
+    input.style.fontSize = "12px";
+    input.style.border = "1px solid #cbd5e1";
+    input.style.borderRadius = "6px";
+    input.style.background = "rgba(255,255,255,0.95)";
+    input.style.color = "#0f172a";
+    input.style.boxShadow = "0 1px 3px rgba(15,23,42,0.12)";
+    input.style.zIndex = "15";
+    input.style.display = "none";
+    input.style.pointerEvents = "auto";
+
+    const applyRotationFromInput = (commitHistory: boolean) => {
+      const raw = Number(input.value);
+      if (!Number.isFinite(raw)) return;
+      const active = canvas.getActiveObject();
+      if (!canShowRotationControls(active)) return;
+      const normalized = ((raw % 360) + 360) % 360;
+      const center = active.getCenterPoint();
+      active.set({ angle: normalized });
+      active.setPositionByOrigin(center, "center", "center");
+      active.setCoords();
+      canvas.requestRenderAll();
+      updateRotationGuideFromActiveSelection();
+      if (commitHistory) pushHistory();
+    };
+
+    input.addEventListener("input", () => {
+      applyRotationFromInput(false);
+    });
+
+    input.addEventListener("change", () => {
+      applyRotationFromInput(true);
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      applyRotationFromInput(true);
+    });
+
+    container.appendChild(input);
+    rotationInputEl = input;
+  }
+
+  function hideRotationInput() {
+    if (!rotationInputEl) return;
+    rotationInputEl.style.display = "none";
+  }
+
+  function updateRotationInputFromActiveSelection() {
+    ensureRotationInputElement();
+    if (!rotationInputEl) return;
+    const active = canvas.getActiveObject();
+    if (!canShowRotationControls(active)) {
+      hideRotationInput();
+      return;
+    }
+    const coords = active?.oCoords?.mtr;
+    if (!coords) {
+      hideRotationInput();
+      return;
+    }
+    const rounded = Math.round(active?.angle || 0);
+    rotationInputEl.value = String(rounded);
+    rotationInputEl.style.left = `${coords.x - 31}px`;
+    rotationInputEl.style.top = `${coords.y - 44}px`;
+    rotationInputEl.style.display = "block";
+  }
+
+  function updateRotationGuideFromActiveSelection() {
+    const active = canvas.getActiveObject();
+    if (!canShowRotationControls(active)) {
+      rotationGuideState = { active: false, angle: 0, point: null };
+      hideRotationInput();
+      return;
+    }
+    const coords = active?.oCoords?.mtr;
+    if (!coords) {
+      rotationGuideState = { active: false, angle: 0, point: null };
+      hideRotationInput();
+      return;
+    }
+    rotationGuideState = {
+      active: true,
+      angle: active?.angle ?? 0,
+      point: { x: coords.x, y: coords.y }
+    };
+  }
 
   function normalizeTextStylesForSerialization() {
     // Ensure text styles are always object-shaped so Fabric JSON stays stable.
@@ -1149,8 +1264,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
 
   function clearGuides() {
     guideState = { active: false, bounds: null, showCenterX: false, showCenterY: false };
-    rotationGuideState = { active: false, angle: 0, point: null };
     alignGuideState = { x: null, y: null };
+    updateRotationGuideFromActiveSelection();
+    updateRotationInputFromActiveSelection();
     if (!isDisposed) canvas.requestRenderAll();
   }
 
@@ -1460,6 +1576,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       angle: target.angle ?? 0,
       point: { x: coords.x, y: coords.y }
     };
+    updateRotationInputFromActiveSelection();
     canvas.requestRenderAll();
   }
 
@@ -1488,11 +1605,15 @@ export function createPageCanvas(options: CreateCanvasOptions) {
 
   const onSelectionCreatedOrUpdated = () => {
     applyActiveSelectionInnerVisuals();
+    updateRotationGuideFromActiveSelection();
+    updateRotationInputFromActiveSelection();
     emitSelectionStyle();
   };
 
   const onSelectionCleared = () => {
     clearActiveSelectionInnerVisuals();
+    rotationGuideState = { active: false, angle: 0, point: null };
+    hideRotationInput();
     emitSelectionStyle();
   };
 
@@ -1504,6 +1625,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.on("text:changed", onTextChanged);
   canvas.on("before:render", clearGuideLayer);
   canvas.on("after:render", renderGuides);
+  canvas.on("after:render", updateRotationInputFromActiveSelection);
   canvas.on("mouse:up", onMouseUp);
   canvas.on("selection:created", onSelectionCreatedOrUpdated);
   canvas.on("selection:updated", onSelectionCreatedOrUpdated);
@@ -1799,6 +1921,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     dispose() {
       isDisposed = true;
       clearActiveSelectionInnerVisuals();
+      if (rotationInputEl) {
+        rotationInputEl.remove();
+        rotationInputEl = null;
+      }
       if (textChangeTimer !== null) {
         window.clearTimeout(textChangeTimer);
         textChangeTimer = null;
