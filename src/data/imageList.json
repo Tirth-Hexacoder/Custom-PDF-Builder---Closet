@@ -6,9 +6,9 @@
       {
         "id": "note-001",
         "text": "Main hanging zone",
-        "xPercent": 90,
-        "yPercent": 10,
-        "fontSize": 68,
+        "xPercent": 18,
+        "yPercent": 24,
+        "fontSize": 18,
         "fontColor": "#1f2937",
         "fontType": "Georgia"
       }
@@ -18,17 +18,7 @@
   {
     "url": "/publicImages/486df7ee-2875-418b-ad1d-33677e7addc3.png",
     "type": "2D",
-    "notes": [
-      {
-        "id": "note-002",
-        "text": "Testing 2",
-        "xPercent": 64,
-        "yPercent": 58,
-        "fontSize": 16,
-        "fontColor": "black",
-        "fontType": "Arial"
-      }
-    ],
+    "notes": [],
     "baseUrl": ""
   },
   {
@@ -76,6 +66,114 @@
         "fontType": "Verdana"
       }
     ],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (5).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (6).png",
+    "type": "2D Default",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (7).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (8).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (9).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy.png",
+    "type": "3D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (10).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (2).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (3).png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (4).png",
+    "type": "Stretched",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (5).png",
+    "type": "Isometric",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (6).png",
+    "type": "3D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (7).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (8).png",
+    "type": "2D Default",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (9).png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy.png",
+    "type": "Stretched",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb.png",
+    "type": "Isometric",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/83cec3fa-502e-4ace-a486-ae8f10374ced (1).png",
+    "type": "3D",
+    "notes": [],
     "baseUrl": ""
   },
   {

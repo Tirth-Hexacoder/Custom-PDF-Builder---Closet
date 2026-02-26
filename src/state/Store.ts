@@ -20,6 +20,7 @@ const SESSION_DOC_KEY = "pdf_builder_document_snapshot_v1";
 const DESIGNER_IMAGE_ORDER: SceneImageType[] = ["2D Default", "2D", "Stretched", "Isometric", "3D", "Wall"];
 const NON_DESIGNER_IMAGE_ORDER: SceneImageType[] = ["Stretched", "Isometric", "3D", "2D Default", "2D", "Wall"];
 const IMAGE_TYPE_CYCLE: SceneImageType[] = ["2D Default", "2D", "Stretched", "Isometric", "3D", "Wall"];
+const DESIGNER_GRID_MAX_PER_PAGE = 6;
 
 export class Store {
   projectId = "";
@@ -89,13 +90,29 @@ export class Store {
       grandTotal: snapshot.tableData?.grandTotal || ""
     };
     const imageByUrl = new Map(this.getDefaultImageUrls().map((item) => [item.url, item]));
-    this.pages = snapshot.pages.map((page, index) => ({
-      defaultImage: page.defaultImage || (page.defaultImageUrl ? imageByUrl.get(page.defaultImageUrl) : undefined),
-      id: page.id || crypto.randomUUID(),
-      name: page.name || `Page ${index + 1}`,
-      fabricJSON: page.fabricJSON ? JSON.parse(JSON.stringify(page.fabricJSON)) : null,
-      defaultImageUrl: page.defaultImageUrl || page.defaultImage?.url
-    }));
+    this.pages = snapshot.pages.map((page, index) => {
+      const fromDefaultImages = Array.isArray(page.defaultImages)
+        ? page.defaultImages
+          .map((item) => (item?.url ? imageByUrl.get(item.url) || item : null))
+          .filter((item): item is SceneImageInput => !!item)
+        : [];
+      const singleCandidate = page.defaultImage
+        ? (page.defaultImage.url ? imageByUrl.get(page.defaultImage.url) || page.defaultImage : null)
+        : (page.defaultImageUrl ? imageByUrl.get(page.defaultImageUrl) : null);
+      const defaultImages = fromDefaultImages.length > 0
+        ? fromDefaultImages
+        : (singleCandidate ? [singleCandidate] : []);
+      const defaultImage = defaultImages[0] || undefined;
+      return {
+        id: page.id || crypto.randomUUID(),
+        name: page.name || `Page ${index + 1}`,
+        fabricJSON: page.fabricJSON ? JSON.parse(JSON.stringify(page.fabricJSON)) : null,
+        defaultImageUrl: defaultImage?.url || page.defaultImageUrl,
+        defaultImage,
+        defaultImages,
+        defaultLayout: page.defaultLayout
+      };
+    });
     const activeExists = this.pages.some((page) => page.id === snapshot.activePageId);
     this.activePageId = activeExists ? snapshot.activePageId : this.pages[0]?.id ?? null;
     return true;
@@ -104,16 +121,91 @@ export class Store {
   // Setup Default Pages as Per Number of Images
   setupDefaultPages() {
     this.imageURL = this.getOrderedDefaultImages();
-    const imagePages = this.imageURL.map((image, index) => ({
-      id: crypto.randomUUID(),
-      name: `Page ${index + 1}`,
-      fabricJSON: null,
-      defaultImageUrl: image.url,
-      defaultImage: image
-    }));
+    const isDesigner = this.userType.toLowerCase() === "designer";
+    const imagePages: Page[] = isDesigner
+      ? this.buildDesignerImagePages(this.imageURL)
+      : this.imageURL.map((image) => ({
+        id: crypto.randomUUID(),
+        name: "",
+        fabricJSON: null,
+        defaultImageUrl: image.url,
+        defaultImage: image,
+        defaultImages: [image],
+        defaultLayout: "single"
+      }));
+    imagePages.forEach((page, index) => {
+      page.name = `Page ${index + 1}`;
+    });
     const bomPages = createBomPages(this.tableData);
     this.pages = [...imagePages, ...bomPages];
 
+  }
+
+  private buildDesignerImagePages(images: SceneImageInput[]) {
+    const pages: Page[] = [];
+    const nonWallImages = images.filter((image) => image.type !== "Wall");
+    const wallImages = images.filter((image) => image.type === "Wall");
+
+    if (nonWallImages.length === 1) {
+      const image = nonWallImages[0];
+      pages.push({
+        id: crypto.randomUUID(),
+        name: "",
+        fabricJSON: null,
+        defaultImageUrl: image.url,
+        defaultImage: image,
+        defaultImages: [image],
+        defaultLayout: "single"
+      });
+    } else if (nonWallImages.length === 2) {
+      pages.push({
+        id: crypto.randomUUID(),
+        name: "",
+        fabricJSON: null,
+        defaultImageUrl: nonWallImages[0].url,
+        defaultImage: nonWallImages[0],
+        defaultImages: nonWallImages,
+        defaultLayout: "grid-2-col"
+      });
+    } else if (nonWallImages.length === 3) {
+      pages.push({
+        id: crypto.randomUUID(),
+        name: "",
+        fabricJSON: null,
+        defaultImageUrl: nonWallImages[0].url,
+        defaultImage: nonWallImages[0],
+        defaultImages: nonWallImages,
+        defaultLayout: "hero-three"
+      });
+    } else if (nonWallImages.length > 3) {
+      for (let index = 0; index < nonWallImages.length; index += DESIGNER_GRID_MAX_PER_PAGE) {
+        const chunk = nonWallImages.slice(index, index + DESIGNER_GRID_MAX_PER_PAGE);
+        pages.push({
+          id: crypto.randomUUID(),
+          name: "",
+          fabricJSON: null,
+          defaultImageUrl: chunk[0].url,
+          defaultImage: chunk[0],
+          defaultImages: chunk,
+          defaultLayout: "grid-2-col"
+        });
+      }
+    }
+
+    for (let index = 0; index < wallImages.length; index += 4) {
+      const wallChunk = wallImages.slice(index, index + 4);
+      pages.push({
+        id: crypto.randomUUID(),
+        name: "",
+        fabricJSON: null,
+        defaultImageUrl: wallChunk[0]?.url,
+        defaultImage: wallChunk[0],
+        defaultImages: wallChunk,
+        defaultLayout: "wall-grid"
+      });
+    }
+
+    return pages;
   }
 
   // Get Image List From Json Data

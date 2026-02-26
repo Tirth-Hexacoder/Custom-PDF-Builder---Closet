@@ -8,7 +8,44 @@ import { renderPagePreview } from "../../utils/pagePreviewUtils";
 
 const IMAGE_DRAG_MIME = "application/x-pdf-builder-image-url";
 
-const getPageDefaultImageUrl = (page?: Page) => page?.defaultImage?.url || page?.defaultImageUrl || "";
+const getPageDefaultImageUrls = (page?: Page) => {
+  if (!page) return [] as string[];
+  if (Array.isArray(page.defaultImages) && page.defaultImages.length > 0) {
+    return page.defaultImages.map((item) => item.url).filter((url): url is string => !!url);
+  }
+  const url = page?.defaultImage?.url || page?.defaultImageUrl || "";
+  return url ? [url] : [];
+};
+
+const getPageDefaultImageUrl = (page?: Page) => getPageDefaultImageUrls(page)[0] || "";
+
+const getPageDefaultImageKey = (page?: Page) => {
+  if (!page) return "";
+  const layout = page.defaultLayout || "";
+  const images = Array.isArray(page.defaultImages) && page.defaultImages.length > 0
+    ? page.defaultImages
+    : (page.defaultImage?.url ? [page.defaultImage] : []);
+  if (images.length > 0) {
+    return JSON.stringify({
+      layout,
+      items: images.map((img) => ({
+        url: img.url,
+        notes: Array.isArray(img.notes)
+          ? img.notes.map((note) => ({
+            id: note.id,
+            text: note.text,
+            xPercent: note.xPercent,
+            yPercent: note.yPercent,
+            fontSize: note.fontSize,
+            fontColor: note.fontColor,
+            fontType: note.fontType
+          }))
+          : []
+      }))
+    });
+  }
+  return `${layout}|${getPageDefaultImageUrl(page)}`;
+};
 
 export const EditorTab = observer(function EditorTab() {
 
@@ -26,7 +63,7 @@ export const EditorTab = observer(function EditorTab() {
   const canvasShellRef = useRef<HTMLDivElement | null>(null);
   const previewQueueRef = useRef<string[]>([]);
   const previewProcessingRef = useRef(false);
-  const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageUrl?: string }>>({});
+  const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageKey?: string }>>({});
   const pendingTrayDropsRef = useRef<Array<{ pageId: string; url: string }>>([]);
 
   const firstPageRenderRef = useRef(true);
@@ -58,7 +95,7 @@ export const EditorTab = observer(function EditorTab() {
   const trayImages = Array.from(
     new Set(
       [
-        ...store.pages.map((page) => getPageDefaultImageUrl(page)),
+        ...store.pages.flatMap((page) => getPageDefaultImageUrls(page)),
         ...store.images.map((img) => img.url || "")
       ].filter((url): url is string => !!url)
     )
@@ -245,10 +282,10 @@ export const EditorTab = observer(function EditorTab() {
       const changed =
         !previous ||
         previous.fabricJSON !== page.fabricJSON ||
-        previous.defaultImageUrl !== getPageDefaultImageUrl(page);
+        previous.defaultImageKey !== getPageDefaultImageKey(page);
       previewSourceRef.current[page.id] = {
         fabricJSON: page.fabricJSON,
-        defaultImageUrl: getPageDefaultImageUrl(page)
+        defaultImageKey: getPageDefaultImageKey(page)
       };
       if (!changed) return;
       if (!previewQueueRef.current.includes(page.id)) {

@@ -1,6 +1,6 @@
 import { A4_PX } from "@closet/core";
 import { fabric } from "fabric";
-import type { Page, SceneImageNote } from "../types";
+import type { Page, SceneImageInput, SceneImageNote } from "../types";
 
 const PREVIEW_TARGET_WIDTH = 180;
 const PREVIEW_MULTIPLIER = PREVIEW_TARGET_WIDTH / A4_PX.width;
@@ -9,32 +9,135 @@ function setWhiteBackground(canvas: fabric.StaticCanvas) {
   canvas.setBackgroundColor("#ffffff", () => undefined);
 }
 
-function fitImageToPage(img: fabric.Image, canvas: fabric.StaticCanvas) {
-  const margin = 40;
-  const topMargin = 100;
-  const bottomMargin = 70;
-  const maxWidth = canvas.getWidth() - margin * 2;
-  const maxHeight = canvas.getHeight() - topMargin - bottomMargin;
-  const scaleX = maxWidth / (img.width || 1);
-  const scaleY = maxHeight / (img.height || 1);
-  const scale = Math.min(scaleX, scaleY, 1);
-  img.scale(scale);
-  img.set({
-    left: (canvas.getWidth() - img.getScaledWidth()) / 2,
-    top: topMargin + (maxHeight - img.getScaledHeight()) / 2
-  });
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function getDefaultImageUrl(page: Page) {
-  return page.defaultImage?.url || page.defaultImageUrl || "";
+function resolvePageDefaultImages(page: Page) {
+  if (Array.isArray(page.defaultImages) && page.defaultImages.length > 0) {
+    return page.defaultImages.filter((item): item is SceneImageInput => !!item && !!item.url);
+  }
+  if (page.defaultImage?.url) return [page.defaultImage];
+  if (page.defaultImageUrl) {
+    return [{
+      url: page.defaultImageUrl,
+      type: "2D Default" as const,
+      notes: [],
+      baseUrl: ""
+    }];
+  }
+  return [] as SceneImageInput[];
 }
 
-function getDefaultImageNotes(page: Page) {
-  return page.defaultImage?.notes || [];
+function resolvePageDefaultLayout(page: Page, imageCount: number) {
+  if (page.defaultLayout) return page.defaultLayout;
+  if (imageCount <= 1) return "single" as const;
+  if (imageCount === 3) return "hero-three" as const;
+  return "grid-2-col" as const;
+}
+
+function buildDefaultImageCells(
+  canvas: fabric.StaticCanvas,
+  defaultImages: SceneImageInput[],
+  layout: "single" | "grid-2-col" | "hero-three" | "stack" | "top-grid" | "wall-grid"
+) {
+  const margin = 40;
+  const topMargin = 100;
+  const bottomMargin = 70;
+  const contentLeft = margin;
+  const contentTop = topMargin;
+  const contentWidth = canvas.getWidth() - margin * 2;
+  const contentHeight = canvas.getHeight() - topMargin - bottomMargin;
+
+  if (defaultImages.length === 0) return [] as Array<{
+    image: SceneImageInput;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }>;
+
+  if (layout === "single") {
+    return [{
+      image: defaultImages[0],
+      left: contentLeft,
+      top: contentTop,
+      width: contentWidth,
+      height: contentHeight
+    }];
+  }
+
+  if (layout === "hero-three") {
+    const images = defaultImages.slice(0, 3);
+    if (images.length < 3) {
+      return images.map((image, index) => ({
+        image,
+        left: contentLeft + (index % 2) * (contentWidth / 2),
+        top: contentTop + Math.floor(index / 2) * (contentHeight / Math.max(Math.ceil(images.length / 2), 1)),
+        width: contentWidth / 2,
+        height: contentHeight / Math.max(Math.ceil(images.length / 2), 1)
+      }));
+    }
+    const topAreaHeight = contentHeight / 2;
+    const lowerAreaTop = contentTop + topAreaHeight;
+    const lowerAreaHeight = contentHeight - topAreaHeight;
+    return [
+      {
+        image: images[0],
+        left: contentLeft,
+        top: contentTop,
+        width: contentWidth,
+        height: topAreaHeight
+      },
+      {
+        image: images[1],
+        left: contentLeft,
+        top: lowerAreaTop,
+        width: contentWidth / 2,
+        height: lowerAreaHeight
+      },
+      {
+        image: images[2],
+        left: contentLeft + contentWidth / 2,
+        top: lowerAreaTop,
+        width: contentWidth / 2,
+        height: lowerAreaHeight
+      }
+    ];
+  }
+
+  if (layout === "grid-2-col" || layout === "stack" || layout === "top-grid") {
+    const images = defaultImages;
+    const cols = images.length === 1 ? 1 : 2;
+    const rows = Math.max(1, Math.ceil(images.length / cols));
+    const cellWidth = contentWidth / cols;
+    const cellHeight = contentHeight / rows;
+    return images.map((image, index) => ({
+      image,
+      left: contentLeft + (index % cols) * cellWidth,
+      top: contentTop + Math.floor(index / cols) * cellHeight,
+      width: cellWidth,
+      height: cellHeight
+    }));
+  }
+
+  const wallImages = defaultImages.slice(0, 4);
+  const wallCount = wallImages.length;
+  const rows = wallCount <= 2 ? wallCount : 2;
+  const cols = wallCount <= 2 ? 1 : 2;
+  const cellWidth = contentWidth / Math.max(cols, 1);
+  const cellHeight = contentHeight / Math.max(rows, 1);
+  return wallImages.map((image, index) => {
+    const row = cols === 1 ? index : Math.floor(index / cols);
+    const col = cols === 1 ? 0 : index % cols;
+    return {
+      image,
+      left: contentLeft + col * cellWidth,
+      top: contentTop + row * cellHeight,
+      width: cellWidth,
+      height: cellHeight
+    };
+  });
 }
 
 function addImageNotes(canvas: fabric.StaticCanvas, img: fabric.Image, notes: SceneImageNote[]) {
@@ -58,6 +161,31 @@ function addImageNotes(canvas: fabric.StaticCanvas, img: fabric.Image, notes: Sc
   });
 }
 
+function syncNotesOnLoadedCanvas(canvas: fabric.StaticCanvas, page: Page) {
+  const defaultImages = resolvePageDefaultImages(page);
+  if (defaultImages.length === 0) return;
+  const existingNoteObjects = canvas.getObjects().filter((obj) => obj.data?.source === "default-image-note");
+  existingNoteObjects.forEach((obj) => canvas.remove(obj));
+  const imageObjects = canvas.getObjects().filter((obj) => obj.type === "image") as fabric.Image[];
+  const remainingImageObjects = [...imageObjects];
+
+  defaultImages.forEach((defaultImage) => {
+    let imageObject = imageObjects.find((obj) => obj.data?.defaultImageUrl === defaultImage.url);
+    if (!imageObject && remainingImageObjects.length > 0) imageObject = remainingImageObjects[0];
+    if (!imageObject) return;
+    imageObject.set({
+      data: {
+        ...(imageObject.data || {}),
+        defaultImageUrl: defaultImage.url,
+        source: "default-image"
+      }
+    });
+    const usedIndex = remainingImageObjects.indexOf(imageObject);
+    if (usedIndex >= 0) remainingImageObjects.splice(usedIndex, 1);
+    addImageNotes(canvas, imageObject, defaultImage.notes || []);
+  });
+}
+
 export async function renderPagePreview(page: Page): Promise<string> {
   const el = document.createElement("canvas");
   const canvas = new fabric.StaticCanvas(el, {
@@ -72,23 +200,37 @@ export async function renderPagePreview(page: Page): Promise<string> {
       await new Promise<void>((resolve) => {
         canvas.loadFromJSON(page.fabricJSON, () => resolve());
       });
+      syncNotesOnLoadedCanvas(canvas, page);
       setWhiteBackground(canvas);
-    } else if (getDefaultImageUrl(page)) {
-      const defaultImageUrl = getDefaultImageUrl(page);
-      await new Promise<void>((resolve) => {
-        fabric.Image.fromURL(
-          defaultImageUrl,
-          (img) => {
-            if (img) {
-              fitImageToPage(img, canvas);
-              canvas.add(img);
-              addImageNotes(canvas, img, getDefaultImageNotes(page));
-            }
-            resolve();
-          },
-          { crossOrigin: "anonymous" }
-        );
-      });
+    } else {
+      const defaultImages = resolvePageDefaultImages(page);
+      const defaultLayout = resolvePageDefaultLayout(page, defaultImages.length);
+      const cells = buildDefaultImageCells(canvas, defaultImages, defaultLayout);
+      for (const cell of cells) {
+        // Keep preview rendering order deterministic.
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise<void>((resolve) => {
+          fabric.Image.fromURL(
+            cell.image.url,
+            (img) => {
+              if (img) {
+                const sourceWidth = img.width || 1;
+                const sourceHeight = img.height || 1;
+                const scale = Math.min(cell.width / sourceWidth, cell.height / sourceHeight, 1);
+                img.scale(scale);
+                img.set({
+                  left: cell.left + (cell.width - img.getScaledWidth()) / 2,
+                  top: cell.top + (cell.height - img.getScaledHeight()) / 2
+                });
+                canvas.add(img);
+                addImageNotes(canvas, img, cell.image.notes || []);
+              }
+              resolve();
+            },
+            { crossOrigin: "anonymous" }
+          );
+        });
+      }
     }
 
     setWhiteBackground(canvas);

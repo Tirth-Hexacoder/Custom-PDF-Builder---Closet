@@ -92,18 +92,28 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function resolvePageDefaultImage(page?: Page) {
-  if (!page) return null;
-  if (page.defaultImage?.url) return page.defaultImage;
+function resolvePageDefaultImages(page?: Page) {
+  if (!page) return [] as SceneImageInput[];
+  if (Array.isArray(page.defaultImages) && page.defaultImages.length > 0) {
+    return page.defaultImages.filter((item): item is SceneImageInput => !!item && typeof item.url === "string" && !!item.url);
+  }
+  if (page.defaultImage?.url) return [page.defaultImage];
   if (page.defaultImageUrl) {
-    return {
+    return [{
       url: page.defaultImageUrl,
       type: "2D Default" as const,
       notes: [],
       baseUrl: ""
-    } satisfies SceneImageInput;
+    } satisfies SceneImageInput];
   }
-  return null;
+  return [] as SceneImageInput[];
+}
+
+function resolvePageDefaultLayout(page: Page | undefined, imageCount: number) {
+  if (page?.defaultLayout) return page.defaultLayout;
+  if (imageCount <= 1) return "single" as const;
+  if (imageCount === 3) return "hero-three" as const;
+  return "grid-2-col" as const;
 }
 
 function isDefaultImageNoteObject(obj: fabric.Object | null | undefined) {
@@ -670,126 +680,222 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     });
   }
 
-  function syncNotesForDefaultImage(img: fabric.Image, notes: SceneImageNote[]) {
-    const existingNotes = canvas
-      .getObjects()
-      .filter((obj) => isDefaultImageNoteObject(obj))
-      .filter((obj) => typeof obj.data?.noteId === "string") as fabric.Textbox[];
-    const existingById = new Map(existingNotes.map((obj) => [String(obj.data?.noteId), obj]));
-    const activeNoteIds = new Set<string>();
+  function clearDefaultImageNotes() {
+    const staleNoteObjects = canvas.getObjects().filter((obj) => isDefaultImageNoteObject(obj));
+    staleNoteObjects.forEach((obj) => canvas.remove(obj));
+  }
 
-    if (!Array.isArray(notes) || notes.length === 0) {
-      existingNotes.forEach((noteObj) => canvas.remove(noteObj));
-      return;
-    }
-
+  function addNotesForPlacedImage(img: fabric.Image, sceneImage: SceneImageInput) {
+    const notes = Array.isArray(sceneImage.notes) ? sceneImage.notes : [];
+    if (notes.length === 0) return;
     const left = img.left || 0;
     const top = img.top || 0;
     const width = img.getScaledWidth();
     const height = img.getScaledHeight();
     notes.forEach((note) => {
-      if (!note || !note.text) return;
-      if (!note.id) return;
-      activeNoteIds.add(note.id);
+      if (!note || !note.text || !note.id) return;
       const xPercent = clamp(Number(note.xPercent) || 0, 0, 100);
       const yPercent = clamp(Number(note.yPercent) || 0, 0, 100);
-      const payload = {
+      const text = new fabric.Textbox(note.text, {
         left: left + (xPercent / 100) * width,
         top: top + (yPercent / 100) * height,
         fill: note.fontColor || "#111827",
         fontSize: Number(note.fontSize) || 18,
         fontFamily: note.fontType || "Georgia",
-        editable: true
-      };
-      const existing = existingById.get(note.id);
-      if (existing) {
-        existing.set({
-          ...payload,
-          text: note.text
-        });
-        existing.setCoords();
-        return;
-      }
-      const text = new fabric.Textbox(note.text, {
-        ...payload,
+        editable: true,
         data: {
           id: `image-note-${note.id}`,
           source: "default-image-note",
-          noteId: note.id
+          noteId: note.id,
+          imageUrl: sceneImage.url
         }
       });
       canvas.add(text);
     });
+  }
 
-    existingNotes.forEach((obj) => {
-      const noteId = String(obj.data?.noteId || "");
-      if (!noteId || activeNoteIds.has(noteId)) return;
-      canvas.remove(obj);
+  function buildDefaultImageCells(
+    defaultImages: SceneImageInput[],
+    layout: "single" | "grid-2-col" | "hero-three" | "stack" | "top-grid" | "wall-grid"
+  ) {
+    const margin = 40;
+    const topMargin = 100;
+    const bottomMargin = 70;
+    const contentLeft = margin;
+    const contentTop = topMargin;
+    const contentWidth = canvas.getWidth() - margin * 2;
+    const contentHeight = canvas.getHeight() - topMargin - bottomMargin;
+
+    if (defaultImages.length === 0) return [] as Array<{
+      image: SceneImageInput;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    }>;
+
+    if (layout === "single") {
+      return [{
+        image: defaultImages[0],
+        left: contentLeft,
+        top: contentTop,
+        width: contentWidth,
+        height: contentHeight
+      }];
+    }
+
+    if (layout === "hero-three") {
+      const images = defaultImages.slice(0, 3);
+      if (images.length < 3) {
+        return images.map((image, index) => ({
+          image,
+          left: contentLeft + (index % 2) * (contentWidth / 2),
+          top: contentTop + Math.floor(index / 2) * (contentHeight / Math.max(Math.ceil(images.length / 2), 1)),
+          width: contentWidth / 2,
+          height: contentHeight / Math.max(Math.ceil(images.length / 2), 1)
+        }));
+      }
+      const topAreaHeight = contentHeight / 2;
+      const lowerAreaTop = contentTop + topAreaHeight;
+      const lowerAreaHeight = contentHeight - topAreaHeight;
+      return [
+        {
+          image: images[0],
+          left: contentLeft,
+          top: contentTop,
+          width: contentWidth,
+          height: topAreaHeight
+        },
+        {
+          image: images[1],
+          left: contentLeft,
+          top: lowerAreaTop,
+          width: contentWidth / 2,
+          height: lowerAreaHeight
+        },
+        {
+          image: images[2],
+          left: contentLeft + contentWidth / 2,
+          top: lowerAreaTop,
+          width: contentWidth / 2,
+          height: lowerAreaHeight
+        }
+      ];
+    }
+
+    if (layout === "grid-2-col" || layout === "stack" || layout === "top-grid") {
+      const images = defaultImages;
+      const cols = images.length === 1 ? 1 : 2;
+      const rows = Math.max(1, Math.ceil(images.length / cols));
+      const cellHeight = contentHeight / rows;
+      const cellWidth = contentWidth / cols;
+      return images.map((image, index) => ({
+        image,
+        left: contentLeft + (index % cols) * cellWidth,
+        top: contentTop + Math.floor(index / cols) * cellHeight,
+        width: cellWidth,
+        height: cellHeight
+      }));
+    }
+
+    const wallImages = defaultImages.slice(0, 4);
+    const wallCount = wallImages.length;
+    const rows = wallCount <= 2 ? wallCount : 2;
+    const cols = wallCount <= 2 ? 1 : 2;
+    const cellWidth = contentWidth / Math.max(cols, 1);
+    const cellHeight = contentHeight / Math.max(rows, 1);
+    return wallImages.map((image, index) => {
+      const row = cols === 1 ? index : Math.floor(index / cols);
+      const col = cols === 1 ? 0 : index % cols;
+      return {
+        image,
+        left: contentLeft + col * cellWidth,
+        top: contentTop + row * cellHeight,
+        width: cellWidth,
+        height: cellHeight
+      };
     });
   }
 
-  function syncDefaultImageMetadata(defaultImage?: SceneImageInput | null) {
-    if (!defaultImage?.url) {
-      const staleNoteObjects = canvas.getObjects().filter((obj) => isDefaultImageNoteObject(obj));
-      staleNoteObjects.forEach((obj) => canvas.remove(obj));
+  function addDefaultImages(
+    defaultImages: SceneImageInput[],
+    defaultLayout: "single" | "grid-2-col" | "hero-three" | "stack" | "top-grid" | "wall-grid",
+    opts?: { recordHistory?: boolean; onComplete?: () => void }
+  ) {
+    const cells = buildDefaultImageCells(defaultImages, defaultLayout);
+    clearDefaultImageNotes();
+    if (cells.length === 0) {
+      opts?.onComplete?.();
       return;
     }
-    const imageObject = canvas.getObjects().find((obj) => {
-      if (obj.type !== "image") return false;
-      if (obj.data?.defaultImageUrl === defaultImage.url) return true;
-      return false;
-    }) as fabric.Image | undefined
-      ?? (canvas.getObjects().find((obj) => obj.type === "image") as fabric.Image | undefined);
-    if (!imageObject) return;
-    imageObject.set({
-      data: {
-        ...(imageObject.data || {}),
-        id: "default-page-image",
-        source: "default-image",
-        defaultImageUrl: defaultImage.url
-      }
-    });
-    syncNotesForDefaultImage(imageObject, defaultImage.notes || []);
-  }
 
-  function addDefaultImage(defaultImage: SceneImageInput, opts?: { recordHistory?: boolean; onComplete?: () => void }) {
-    // Auto-place a default scene image inside printable content area.
-    fabric.Image.fromURL(
-      defaultImage.url,
-      (img) => {
-        if (!img || isDisposed) return;
-        const margin = 40;
-        const topMargin = 100;
-        const bottomMargin = 70;
-        const maxWidth = canvas.getWidth() - margin * 2;
-        const maxHeight = canvas.getHeight() - topMargin - bottomMargin;
-        const scaleX = maxWidth / img.width!;
-        const scaleY = maxHeight / img.height!;
-        const scale = Math.min(scaleX, scaleY, 1);
-        img.scale(scale);
-        img.set({
-          left: (canvas.getWidth() - img.getScaledWidth()) / 2,
-          top: topMargin + (maxHeight - img.getScaledHeight()) / 2
-        });
-        img.set({
-          data: {
-            ...(img.data || {}),
-            id: "default-page-image",
-            source: "default-image",
-            defaultImageUrl: defaultImage.url
-          }
-        });
-        applyImageControls(img);
-        canvas.add(img);
-        syncNotesForDefaultImage(img, defaultImage.notes || []);
-        canvas.setActiveObject(img);
+    const loadByIndex = (index: number) => {
+      if (index >= cells.length) {
         ensureHeaderFooter();
         if (!isDisposed) canvas.requestRenderAll();
         if (opts?.recordHistory !== false) pushHistory();
         opts?.onComplete?.();
-      },
-      { crossOrigin: "anonymous" }
-    );
+        return;
+      }
+      const cell = cells[index];
+      fabric.Image.fromURL(
+        cell.image.url,
+        (img) => {
+          if (!img || isDisposed) {
+            loadByIndex(index + 1);
+            return;
+          }
+          const sourceWidth = img.width || 1;
+          const sourceHeight = img.height || 1;
+          const scale = Math.min(cell.width / sourceWidth, cell.height / sourceHeight, 1);
+          img.scale(scale);
+          img.set({
+            left: cell.left + (cell.width - img.getScaledWidth()) / 2,
+            top: cell.top + (cell.height - img.getScaledHeight()) / 2,
+            data: {
+              ...(img.data || {}),
+              id: "default-page-image",
+              source: "default-image",
+              defaultImageUrl: cell.image.url
+            }
+          });
+          applyImageControls(img);
+          canvas.add(img);
+          addNotesForPlacedImage(img, cell.image);
+          loadByIndex(index + 1);
+        },
+        { crossOrigin: "anonymous" }
+      );
+    };
+
+    loadByIndex(0);
+  }
+
+  function syncDefaultImageMetadata(defaultImages: SceneImageInput[]) {
+    clearDefaultImageNotes();
+    if (!Array.isArray(defaultImages) || defaultImages.length === 0) return;
+    const imageObjects = canvas.getObjects().filter((obj) => obj.type === "image") as fabric.Image[];
+    const remainingImageObjects = [...imageObjects];
+
+    defaultImages.forEach((defaultImage) => {
+      if (!defaultImage?.url) return;
+      let imageObject = imageObjects.find((obj) => obj.data?.defaultImageUrl === defaultImage.url);
+      if (!imageObject && remainingImageObjects.length > 0) {
+        imageObject = remainingImageObjects[0];
+      }
+      if (!imageObject) return;
+      imageObject.set({
+        data: {
+          ...(imageObject.data || {}),
+          id: "default-page-image",
+          source: "default-image",
+          defaultImageUrl: defaultImage.url
+        }
+      });
+      const usedIndex = remainingImageObjects.indexOf(imageObject);
+      if (usedIndex >= 0) remainingImageObjects.splice(usedIndex, 1);
+      addNotesForPlacedImage(imageObject, defaultImage);
+    });
   }
 
   function loadPage(nextPage?: Page) {
@@ -801,25 +907,27 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     canvas.clear();
     ensureWhiteBackground();
     if (nextPage.fabricJSON) {
-      const defaultImage = resolvePageDefaultImage(nextPage);
+      const defaultImages = resolvePageDefaultImages(nextPage);
       canvas.loadFromJSON(nextPage.fabricJSON, () => {
         ensureWhiteBackground();
         applyImageControlsToCanvas();
         ensureBomTableGroup();
-        syncDefaultImageMetadata(defaultImage);
+        syncDefaultImageMetadata(defaultImages);
         isRestoring = false;
         ensureHeaderFooter();
         canvas.renderAll();
         seedHistoryFromCanvas();
+        if (currentPageId) onPageChangeRef(currentPageId, buildPersistedJson());
         emitSelectionStyle();
       });
     } else {
       isRestoring = false;
       ensureWhiteBackground();
       ensureHeaderFooter();
-      const defaultImage = resolvePageDefaultImage(nextPage);
-      if (defaultImage?.url) {
-        addDefaultImage(defaultImage, {
+      const defaultImages = resolvePageDefaultImages(nextPage);
+      const defaultLayout = resolvePageDefaultLayout(nextPage, defaultImages.length);
+      if (defaultImages.length > 0) {
+        addDefaultImages(defaultImages, defaultLayout, {
           recordHistory: false,
           onComplete: () => {
             seedHistoryFromCanvas();
@@ -1361,23 +1469,25 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   emitSelectionStyle();
 
   if (page?.fabricJSON) {
-    const defaultImage = resolvePageDefaultImage(page);
+    const defaultImages = resolvePageDefaultImages(page);
     isRestoring = true;
     canvas.loadFromJSON(page.fabricJSON, () => {
       ensureWhiteBackground();
       applyImageControlsToCanvas();
       ensureBomTableGroup();
-      syncDefaultImageMetadata(defaultImage);
+      syncDefaultImageMetadata(defaultImages);
       isRestoring = false;
       ensureHeaderFooter();
       canvas.renderAll();
       seedHistoryFromCanvas();
+      if (currentPageId) onPageChangeRef(currentPageId, buildPersistedJson());
     });
   } else {
     ensureHeaderFooter();
-    const defaultImage = resolvePageDefaultImage(page);
-    if (defaultImage?.url) {
-      addDefaultImage(defaultImage, {
+    const defaultImages = resolvePageDefaultImages(page);
+    const defaultLayout = resolvePageDefaultLayout(page, defaultImages.length);
+    if (defaultImages.length > 0) {
+      addDefaultImages(defaultImages, defaultLayout, {
         recordHistory: false,
         onComplete: () => {
           seedHistoryFromCanvas();

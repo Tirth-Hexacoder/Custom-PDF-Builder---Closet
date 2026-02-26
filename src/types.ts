@@ -8,6 +8,8 @@ export type Page = {
   fabricJSON: FabricJSON;
   defaultImageUrl?: string;
   defaultImage?: SceneImageInput;
+  defaultImages?: SceneImageInput[];
+  defaultLayout?: "single" | "grid-2-col" | "hero-three" | "stack" | "top-grid" | "wall-grid";
 };
 
 export type PendingCapture = {
