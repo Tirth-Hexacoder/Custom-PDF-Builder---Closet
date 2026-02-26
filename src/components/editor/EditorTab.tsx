@@ -7,6 +7,8 @@ import { FabricCanvas } from "./FabricCanvas";
 import { renderPagePreview } from "../../utils/pagePreviewUtils";
 
 const IMAGE_DRAG_MIME = "application/x-pdf-builder-image-url";
+const MIN_ZOOM_PERCENT = 30;
+const MAX_ZOOM_PERCENT = 150;
 
 const getPageDefaultImageUrls = (page?: Page) => {
   if (!page) return [] as string[];
@@ -114,7 +116,7 @@ export const EditorTab = observer(function EditorTab() {
     const availableHeight = Math.max(280, viewport.clientHeight);
     const widthZoom = (availableWidth / A4_PX.width) * 100;
     const heightZoom = (availableHeight / A4_PX.height) * 100;
-    return Math.max(20, Math.min(300, mode === "width" ? widthZoom : heightZoom));
+    return Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, mode === "width" ? widthZoom : heightZoom));
   };
 
   const applyFitMode = (mode: "width" | "height") => {
@@ -123,7 +125,7 @@ export const EditorTab = observer(function EditorTab() {
   };
 
   const setManualZoom = (next: number) => {
-    const clamped = Math.max(20, Math.min(300, Math.round(next)));
+    const clamped = Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, Math.round(next)));
     setFitMode("none");
     setZoomPercent(clamped);
   };
@@ -347,7 +349,7 @@ export const EditorTab = observer(function EditorTab() {
 
           <div className="toolbar-divider"></div>
 
-          <div className="toolbar-group font-size-group">
+          <div className={`toolbar-group font-size-group ${canEditTextStyle ? "" : "toolbar-group-disabled"}`}>
             <span className="toolbar-label">SIZE</span>
             <div className="font-size-control">
               <button
@@ -431,14 +433,17 @@ export const EditorTab = observer(function EditorTab() {
 
           <div className="toolbar-divider"></div>
 
-          <div className="toolbar-group" style={{ gap: '4px' }}>
+          <div className={`toolbar-group ${canEditTextStyle ? "" : "toolbar-group-disabled"}`} style={{ gap: "4px" }}>
             <span className="toolbar-label">COLOR</span>
-            <div style={{ position: 'relative', width: '28px', height: '28px', borderRadius: '4px', background: fontColor, border: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div
+              className={`toolbar-color-swatch ${canEditTextStyle ? "" : "disabled"}`}
+              style={{ background: fontColor }}
+            >
               <input
                 type="color"
                 value={fontColor}
                 disabled={!canEditTextStyle}
-                style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', cursor: 'pointer', left: 0, top: 0 }}
+                style={{ position: "absolute", opacity: 0, width: "100%", height: "100%", cursor: "pointer", left: 0, top: 0 }}
                 onChange={(e) => {
                   setFontColor(e.target.value);
                   canvasRef.current?.setTextStyle({ fill: e.target.value });
@@ -518,13 +523,25 @@ export const EditorTab = observer(function EditorTab() {
 
           <div className="toolbar-divider"></div>
 
-          <button className="tool-btn icon-only" onClick={() => setManualZoom(zoomPercent - 10)} aria-label="Zoom Out" title="Zoom Out">
+          <button
+            className="tool-btn icon-only"
+            onClick={() => setManualZoom(zoomPercent - 10)}
+            aria-label="Zoom Out"
+            title="Zoom Out"
+            disabled={zoomPercent <= MIN_ZOOM_PERCENT}
+          >
             <i className="fa-solid fa-minus"></i>
           </button>
           <button className="tool-btn toolbar-zoom-badge" onClick={() => setManualZoom(100)} title="Reset to 100%">
             {zoomPercent}%
           </button>
-          <button className="tool-btn icon-only" onClick={() => setManualZoom(zoomPercent + 10)} aria-label="Zoom In" title="Zoom In">
+          <button
+            className="tool-btn icon-only"
+            onClick={() => setManualZoom(zoomPercent + 10)}
+            aria-label="Zoom In"
+            title="Zoom In"
+            disabled={zoomPercent >= MAX_ZOOM_PERCENT}
+          >
             <i className="fa-solid fa-plus"></i>
           </button>
 

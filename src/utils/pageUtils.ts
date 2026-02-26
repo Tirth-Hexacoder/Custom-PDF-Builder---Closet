@@ -1201,16 +1201,25 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       : [canvas.getActiveObject()].filter(Boolean) as fabric.Object[];
     if (targets.length === 0) return;
 
+    const canvasObjects = canvas.getObjects();
+    const orderedTargets = targets
+      .filter((obj) => !isLockedDecorationId(obj.data?.id))
+      .sort((a, b) => canvasObjects.indexOf(a) - canvasObjects.indexOf(b));
+
+    if (orderedTargets.length === 0) return;
+
     let changed = false;
-    targets.forEach((obj) => {
-      if (isLockedDecorationId(obj.data?.id)) return;
-      if (direction === "up") {
-        canvas.bringForward(obj);
-      } else {
-        canvas.sendBackwards(obj);
-      }
-      changed = true;
-    });
+    if (direction === "up") {
+      orderedTargets.forEach((obj) => {
+        canvas.bringToFront(obj);
+        changed = true;
+      });
+    } else {
+      [...orderedTargets].reverse().forEach((obj) => {
+        canvas.sendToBack(obj);
+        changed = true;
+      });
+    }
 
     if (!changed) return;
     bringDecorationsToFront(canvas);

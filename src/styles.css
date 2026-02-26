@@ -670,6 +670,14 @@ button {
   gap: 10px;
 }
 
+.toolbar-group-disabled {
+  opacity: 0.5;
+}
+
+.toolbar-group-disabled .toolbar-label {
+  color: #94a3b8;
+}
+
 .font-size-control {
   display: flex;
   align-items: center;
@@ -712,6 +720,42 @@ button {
 
 .font-size-btn:hover {
   background: #e2e8f0;
+}
+
+.toolbar-group-disabled .font-size-control {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: none;
+}
+
+.toolbar-group-disabled .font-size-input {
+  color: #94a3b8;
+}
+
+.toolbar-group-disabled .font-size-btn {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.toolbar-color-swatch {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.toolbar-color-swatch.disabled {
+  cursor: not-allowed;
+}
+
+.toolbar-color-swatch.disabled::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  background: rgba(248, 250, 252, 0.55);
 }
 
 .opacity-group {
