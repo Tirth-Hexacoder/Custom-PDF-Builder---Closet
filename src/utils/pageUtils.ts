@@ -510,6 +510,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   let currentPageId: string | null = page?.id ?? null;
   let isDisposed = false;
   let textChangeTimer: number | null = null;
+  const activeSelectionVisualState = new Map<fabric.Object, { hasBorders: boolean; hasControls: boolean }>();
 
   // Visual helper states used while moving/rotating objects.
   let guideState = {
@@ -652,6 +653,39 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       return;
     }
     onTextSelectionChangeRef(toToolbarState(active));
+  }
+
+  function clearActiveSelectionInnerVisuals() {
+    activeSelectionVisualState.forEach((state, obj) => {
+      obj.set({
+        hasBorders: state.hasBorders,
+        hasControls: state.hasControls
+      });
+      obj.setCoords();
+    });
+    activeSelectionVisualState.clear();
+  }
+
+  function applyActiveSelectionInnerVisuals() {
+    const active = canvas.getActiveObject();
+    if (!active || active.type !== "activeSelection") {
+      clearActiveSelectionInnerVisuals();
+      return;
+    }
+    const selection = active as fabric.ActiveSelection;
+    selection.getObjects().forEach((obj) => {
+      if (!activeSelectionVisualState.has(obj)) {
+        activeSelectionVisualState.set(obj, {
+          hasBorders: obj.hasBorders !== false,
+          hasControls: obj.hasControls !== false
+        });
+      }
+      obj.set({
+        hasBorders: false,
+        hasControls: false
+      });
+      obj.setCoords();
+    });
   }
 
   function ensureHeaderFooter() {
@@ -1452,6 +1486,16 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     }, 120);
   };
 
+  const onSelectionCreatedOrUpdated = () => {
+    applyActiveSelectionInnerVisuals();
+    emitSelectionStyle();
+  };
+
+  const onSelectionCleared = () => {
+    clearActiveSelectionInnerVisuals();
+    emitSelectionStyle();
+  };
+
   canvas.on("object:added", onCanvasChanged);
   canvas.on("object:modified", onCanvasChanged);
   canvas.on("object:removed", onCanvasChanged);
@@ -1461,9 +1505,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.on("before:render", clearGuideLayer);
   canvas.on("after:render", renderGuides);
   canvas.on("mouse:up", onMouseUp);
-  canvas.on("selection:created", emitSelectionStyle);
-  canvas.on("selection:updated", emitSelectionStyle);
-  canvas.on("selection:cleared", emitSelectionStyle);
+  canvas.on("selection:created", onSelectionCreatedOrUpdated);
+  canvas.on("selection:updated", onSelectionCreatedOrUpdated);
+  canvas.on("selection:cleared", onSelectionCleared);
 
   onReadyRef?.(true);
   emitSelectionStyle();
@@ -1754,6 +1798,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     },
     dispose() {
       isDisposed = true;
+      clearActiveSelectionInnerVisuals();
       if (textChangeTimer !== null) {
         window.clearTimeout(textChangeTimer);
         textChangeTimer = null;
