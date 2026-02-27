@@ -143,7 +143,63 @@ function buildDefaultImageCells(
     ];
   }
 
-  if (layout === "grid-2-col" || layout === "stack" || layout === "top-grid") {
+  if (layout === "top-grid") {
+    const heroImage = defaultImages[0];
+    const gridImages = defaultImages.slice(1);
+    if (!heroImage) return [] as Array<{
+      image: SceneImageInput;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    }>;
+    if (gridImages.length === 0) {
+      return [{
+        image: heroImage,
+        left: contentLeft,
+        top: contentTop,
+        width: contentWidth,
+        height: contentHeight
+      }];
+    }
+
+    const gap = 12;
+    const gridCount = gridImages.length;
+    let cols = Math.min(3, Math.max(1, gridCount));
+    const minWidth = contentWidth * 0.26;
+    while (cols > 1 && ((contentWidth - gap * (cols - 1)) / cols) < minWidth) cols -= 1;
+    const rows = Math.max(1, Math.ceil(gridCount / cols));
+
+    const heroHeightRatio = gridCount <= 2 ? 0.62 : gridCount <= 4 ? 0.54 : 0.46;
+    const heroHeight = Math.max(160, contentHeight * heroHeightRatio);
+    const availableGridHeight = Math.max(120, contentHeight - heroHeight - gap);
+    const cellWidth = (contentWidth - gap * (cols - 1)) / cols;
+    const cellHeight = (availableGridHeight - gap * (rows - 1)) / rows;
+    const gridTop = contentTop + heroHeight + gap;
+
+    const cells = [{
+      image: heroImage,
+      left: contentLeft,
+      top: contentTop,
+      width: contentWidth,
+      height: heroHeight
+    }];
+
+    gridImages.forEach((image, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      cells.push({
+        image,
+        left: contentLeft + col * (cellWidth + gap),
+        top: gridTop + row * (cellHeight + gap),
+        width: cellWidth,
+        height: cellHeight
+      });
+    });
+    return cells;
+  }
+
+  if (layout === "grid-2-col" || layout === "stack") {
     const images = defaultImages;
     const cols = images.length === 1 ? 1 : 2;
     const rows = Math.max(1, Math.ceil(images.length / cols));

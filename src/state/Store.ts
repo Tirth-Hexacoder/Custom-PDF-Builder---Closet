@@ -21,6 +21,7 @@ const DESIGNER_IMAGE_ORDER: SceneImageType[] = ["2D Default", "2D", "Stretched",
 const NON_DESIGNER_IMAGE_ORDER: SceneImageType[] = ["Stretched", "Isometric", "3D", "2D Default", "2D", "Wall"];
 const IMAGE_TYPE_CYCLE: SceneImageType[] = ["2D Default", "2D", "Stretched", "Isometric", "3D", "Wall"];
 const DESIGNER_GRID_MAX_PER_PAGE = 6;
+const WALL_GRID_MAX_PER_PAGE = 4;
 
 export class Store {
   projectId = "";
@@ -143,57 +144,52 @@ export class Store {
 
   private buildDesignerImagePages(images: SceneImageInput[]) {
     const pages: Page[] = [];
-    const nonWallImages = images.filter((image) => image.type !== "Wall");
-    const wallImages = images.filter((image) => image.type === "Wall");
+    const wallImages: SceneImageInput[] = [];
+    const nonWallImages: SceneImageInput[] = [];
+    let default2DImage: SceneImageInput | null = null;
 
-    if (nonWallImages.length === 1) {
-      const image = nonWallImages[0];
-      pages.push({
-        id: crypto.randomUUID(),
-        name: "",
-        fabricJSON: null,
-        defaultImageUrl: image.url,
-        defaultImage: image,
-        defaultImages: [image],
-        defaultLayout: "single"
-      });
-    } else if (nonWallImages.length === 2) {
-      pages.push({
-        id: crypto.randomUUID(),
-        name: "",
-        fabricJSON: null,
-        defaultImageUrl: nonWallImages[0].url,
-        defaultImage: nonWallImages[0],
-        defaultImages: nonWallImages,
-        defaultLayout: "grid-2-col"
-      });
-    } else if (nonWallImages.length === 3) {
-      pages.push({
-        id: crypto.randomUUID(),
-        name: "",
-        fabricJSON: null,
-        defaultImageUrl: nonWallImages[0].url,
-        defaultImage: nonWallImages[0],
-        defaultImages: nonWallImages,
-        defaultLayout: "hero-three"
-      });
-    } else if (nonWallImages.length > 3) {
-      for (let index = 0; index < nonWallImages.length; index += DESIGNER_GRID_MAX_PER_PAGE) {
-        const chunk = nonWallImages.slice(index, index + DESIGNER_GRID_MAX_PER_PAGE);
-        pages.push({
-          id: crypto.randomUUID(),
-          name: "",
-          fabricJSON: null,
-          defaultImageUrl: chunk[0].url,
-          defaultImage: chunk[0],
-          defaultImages: chunk,
-          defaultLayout: "grid-2-col"
-        });
+    images.forEach((image) => {
+      if (image.type === "Wall") {
+        wallImages.push(image);
+        return;
       }
+      if (!default2DImage && image.type === "2D Default") {
+        default2DImage = image;
+        return;
+      }
+      nonWallImages.push(image);
+    });
+
+    if (default2DImage) {
+      const firstPageGridChunk = nonWallImages.slice(0, DESIGNER_GRID_MAX_PER_PAGE);
+      const firstPageImages = [default2DImage, ...firstPageGridChunk];
+      pages.push({
+        id: crypto.randomUUID(),
+        name: "",
+        fabricJSON: null,
+        defaultImageUrl: default2DImage.url,
+        defaultImage: default2DImage,
+        defaultImages: firstPageImages,
+        defaultLayout: firstPageGridChunk.length > 0 ? "top-grid" : "single"
+      });
     }
 
-    for (let index = 0; index < wallImages.length; index += 4) {
-      const wallChunk = wallImages.slice(index, index + 4);
+    const nonWallStartIndex = default2DImage ? DESIGNER_GRID_MAX_PER_PAGE : 0;
+    for (let index = nonWallStartIndex; index < nonWallImages.length; index += DESIGNER_GRID_MAX_PER_PAGE) {
+      const chunk = nonWallImages.slice(index, index + DESIGNER_GRID_MAX_PER_PAGE);
+      pages.push({
+        id: crypto.randomUUID(),
+        name: "",
+        fabricJSON: null,
+        defaultImageUrl: chunk[0].url,
+        defaultImage: chunk[0],
+        defaultImages: chunk,
+        defaultLayout: chunk.length === 1 ? "single" : "grid-2-col"
+      });
+    }
+
+    for (let index = 0; index < wallImages.length; index += WALL_GRID_MAX_PER_PAGE) {
+      const wallChunk = wallImages.slice(index, index + WALL_GRID_MAX_PER_PAGE);
       pages.push({
         id: crypto.randomUUID(),
         name: "",

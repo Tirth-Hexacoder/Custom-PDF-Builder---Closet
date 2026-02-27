@@ -1,29 +1,203 @@
 [
-  "/publicImages/15a0337a-3c91-4b83-8526-8a000eadd86e.png",
-  "/publicImages/486df7ee-2875-418b-ad1d-33677e7addc3.png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (2).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (3).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (4).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (5).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (6).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (7).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (8).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (9).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy.png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (10).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (2).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (3).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (4).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (5).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (6).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (7).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (8).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (9).png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy.png",
-  "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb.png",
-  "/publicImages/83cec3fa-502e-4ace-a486-ae8f10374ced (1).png",
-  "/publicImages/83cec3fa-502e-4ace-a486-ae8f10374ced.png",
-  "/publicImages/ed8bc882-4560-443e-a306-02568d7f8bf1.png",
-  "/publicImages/fb984c2b-53e0-4302-b9ee-49355f3e3288.png",
-  "/publicImages/fc48fec9-f6fb-42e3-82e5-0281038dbbd8.png"
+  {
+    "url": "/publicImages/15a0337a-3c91-4b83-8526-8a000eadd86e.png",
+    "type": "2D Default",
+    "notes": [
+      {
+        "id": "note-001",
+        "text": "Main hanging zone",
+        "xPercent": 18,
+        "yPercent": 24,
+        "fontSize": 18,
+        "fontColor": "#1f2937",
+        "fontType": "Georgia"
+      }
+    ],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/486df7ee-2875-418b-ad1d-33677e7addc3.png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (2).png",
+    "type": "Stretched",
+    "notes": [
+      {
+        "id": "note-002",
+        "text": "Pull-out drawer",
+        "xPercent": 64,
+        "yPercent": 58,
+        "fontSize": 16,
+        "fontColor": "#b91c1c",
+        "fontType": "Arial"
+      },
+      {
+        "id": "note-003",
+        "text": "Adjustable shelf",
+        "xPercent": 43,
+        "yPercent": 35,
+        "fontSize": 14,
+        "fontColor": "#0f766e",
+        "fontType": "Times New Roman"
+      }
+    ],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (3).png",
+    "type": "Isometric",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (4).png",
+    "type": "3D",
+    "notes": [
+      {
+        "id": "note-004",
+        "text": "Mirror shutter",
+        "xPercent": 74,
+        "yPercent": 30,
+        "fontSize": 17,
+        "fontColor": "#1d4ed8",
+        "fontType": "Verdana"
+      }
+    ],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (5).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (6).png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (7).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (8).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy (9).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy - Copy.png",
+    "type": "3D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (10).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (2).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (3).png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (4).png",
+    "type": "Stretched",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (5).png",
+    "type": "Isometric",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (6).png",
+    "type": "3D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (7).png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (8).png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy (9).png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb - Copy.png",
+    "type": "Stretched",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/5972bbf0-74c4-4baf-b49d-4ac6e4a0f7cb.png",
+    "type": "Isometric",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/83cec3fa-502e-4ace-a486-ae8f10374ced (1).png",
+    "type": "3D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/83cec3fa-502e-4ace-a486-ae8f10374ced.png",
+    "type": "Wall",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/ed8bc882-4560-443e-a306-02568d7f8bf1.png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/fb984c2b-53e0-4302-b9ee-49355f3e3288.png",
+    "type": "2D",
+    "notes": [],
+    "baseUrl": ""
+  },
+  {
+    "url": "/publicImages/fc48fec9-f6fb-42e3-82e5-0281038dbbd8.png",
+    "type": "Stretched",
+    "notes": [],
+    "baseUrl": ""
+  }
 ]
