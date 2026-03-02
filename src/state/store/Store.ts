@@ -45,18 +45,15 @@ export class Store {
     makeAutoObservable(this);
     const sessionDocument = this.readSessionSnapshot();
     if (initialDocument && this.loadSnapshot(initialDocument)) {
-      this.persistSessionSnapshot();
       return;
     }
     if (sessionDocument && this.loadSnapshot(sessionDocument)) {
-      this.persistSessionSnapshot();
       return;
     }
     this.loadUser();
     this.setupTableData();
     this.setupDefaultPages();
     this.activePageId = this.pages[0].id;
-    this.persistSessionSnapshot();
   }
 
   private readSessionSnapshot() {
@@ -71,9 +68,18 @@ export class Store {
   }
 
   private persistSessionSnapshot() {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (typeof window === "undefined" || !window.sessionStorage) return false;
     const snapshot = this.toDocumentSnapshot();
     window.sessionStorage.setItem(SESSION_DOC_KEY, JSON.stringify(snapshot));
+    return true;
+  }
+
+  saveSnapshot() {
+    try {
+      return this.persistSessionSnapshot();
+    } catch {
+      return false;
+    }
   }
 
   loadSnapshot(snapshot: ProposalDocumentSnapshot) {
@@ -123,7 +129,6 @@ export class Store {
   importSnapshot(snapshot: ProposalDocumentSnapshot) {
     const loaded = this.loadSnapshot(snapshot);
     if (!loaded) return false;
-    this.persistSessionSnapshot();
     return true;
   }
 
@@ -285,7 +290,6 @@ export class Store {
   // Set Active Page
   setActivePageId(id: string) {
     this.activePageId = id;
-    this.persistSessionSnapshot();
   }
 
   // Add Capture Into Pending Capture Array
@@ -300,7 +304,6 @@ export class Store {
     const idx = this.pages.findIndex((p) => p.id === pageId);
     if (idx >= 0) {
       this.pages[idx].fabricJSON = json ? JSON.parse(JSON.stringify(json)) : null;
-      this.persistSessionSnapshot();
     }
   }
 
@@ -318,7 +321,6 @@ export class Store {
     };
     this.pages.push(page);
     this.activePageId = page.id;
-    this.persistSessionSnapshot();
   }
 
   // Remove The Page From Pages Array of Store
@@ -327,7 +329,6 @@ export class Store {
     const idx = this.pages.findIndex((p) => p.id === this.activePageId);
     this.pages.splice(idx, 1);
     this.activePageId = this.pages[Math.max(0, idx - 1)].id;
-    this.persistSessionSnapshot();
   }
 
   // Swap current page index with the next page index
@@ -337,7 +338,6 @@ export class Store {
     const temp = this.pages[index];
     this.pages[index] = this.pages[next];
     this.pages[next] = temp;
-    this.persistSessionSnapshot();
   }
 
   // Move page from one position to another
@@ -347,6 +347,5 @@ export class Store {
     if (toIndex < 0 || toIndex >= this.pages.length) return;
     const [moved] = this.pages.splice(fromIndex, 1);
     this.pages.splice(toIndex, 0, moved);
-    this.persistSessionSnapshot();
   }
 }

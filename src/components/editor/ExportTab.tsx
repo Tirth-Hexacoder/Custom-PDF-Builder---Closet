@@ -1,4 +1,5 @@
 import { observer } from "mobx-react-lite";
+import toast from "react-hot-toast";
 import { useStore } from "../../state/Root";
 import { downloadSnapshotJson, exportSnapshotAsPdf } from "../../utils/downloadTab/documentAdapter";
 
@@ -12,6 +13,13 @@ export const ExportTab = observer(function ExportTab() {
     await exportSnapshotAsPdf(snapshot);
   };
 
+  // Save current working snapshot into session storage.
+  const saveSnapshot = () => {
+    const saved = store.saveSnapshot();
+    if (saved) toast.success("Changes saved.");
+    else toast.error("Failed to save changes.");
+  };
+
   return (
 
     // Project Data Showing
@@ -22,6 +30,9 @@ export const ExportTab = observer(function ExportTab() {
         <div className="controls-row" style={{ marginTop: 24 }}>
           <button className="btn primary" style={{ padding: '12px 24px' }} onClick={exportPDF}>
             <span style={{ fontSize: '1.1rem' }}>Download Professional PDF</span>
+          </button>
+          <button className="btn secondary" style={{ padding: '12px 24px' }} onClick={saveSnapshot}>
+            <span style={{ fontSize: '1.1rem' }}>Save</span>
           </button>
         </div>
       </div>

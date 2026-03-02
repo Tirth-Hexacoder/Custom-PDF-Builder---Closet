@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 import { SceneTab } from "./components/scene/SceneTab";
 import { EditorTab } from "./components/editor/EditorTab";
 import { ExportTab } from "./components/editor/ExportTab";
+import { useStore } from "./state/Root";
 import type { AppTab, TabId } from "./types";
 
 const tabs: AppTab[] = [
@@ -13,6 +15,7 @@ const tabs: AppTab[] = [
 ];
 
 export default function App() {
+  const store = useStore();
   const [activeTab, setActiveTab] = useState<TabId>("editor");
 
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
@@ -51,6 +54,19 @@ export default function App() {
         </div>
 
         <div className="meta">
+          {activeTab === "editor" && (
+            <button
+              className="pill-item benchmark-pill-link"
+              onClick={() => {
+                const saved = store.saveSnapshot();
+                if (saved) toast.success("Changes saved.");
+                else toast.error("Failed to save changes.");
+              }}
+              type="button"
+            >
+              <span className="pill-text">Save</span>
+            </button>
+          )}
           <Link className="pill-item benchmark-pill-link" to="/crop-benchmark">
             <span className="pill-text">Crop Benchmark</span>
           </Link>

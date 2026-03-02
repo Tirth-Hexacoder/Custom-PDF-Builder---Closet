@@ -104,7 +104,7 @@ function makeCellText(text: string, left: number, top: number, width: number, bo
     width,
     styles: {},
     fontFamily: "Inter",
-    fontSize: FONT_SIZE,
+    fontSize: BOM_FONT_SIZE,
     fontWeight: bold ? "700" : "400",
     fill: "#111827",
     editable: false,
