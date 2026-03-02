@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { SceneTab } from "./components/scene/SceneTab";
 import { EditorTab } from "./components/editor/EditorTab";
@@ -50,6 +51,9 @@ export default function App() {
         </div>
 
         <div className="meta">
+          <Link className="pill-item benchmark-pill-link" to="/crop-benchmark">
+            <span className="pill-text">Crop Benchmark</span>
+          </Link>
           <div className="pill-item">
             <span className="pill-text">{activeTabLabel}</span>
           </div>

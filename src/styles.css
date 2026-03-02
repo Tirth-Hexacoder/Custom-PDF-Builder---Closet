@@ -877,3 +877,98 @@ canvas {
 #layerDown{
   transform: rotate(180deg);
 }
+
+.benchmark-pill-link {
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.crop-benchmark-page {
+  min-height: 100vh;
+  background: #f5f7fb;
+  padding: 24px;
+  color: #0f172a;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.crop-benchmark-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.crop-benchmark-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.crop-benchmark-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-benchmark-btn,
+.back-link-btn {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: #ffffff;
+  color: #0f172a;
+  text-decoration: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.run-benchmark-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.crop-benchmark-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.crop-benchmark-table-wrap {
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: auto;
+  max-height: calc(100vh - 220px);
+}
+
+.crop-benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.crop-benchmark-table th,
+.crop-benchmark-table td {
+  border-bottom: 1px solid #edf2f7;
+  padding: 9px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.crop-benchmark-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+}
+
+.crop-benchmark-table .url-cell {
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
