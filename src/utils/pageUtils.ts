@@ -1025,8 +1025,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   }
 
   function syncDefaultImageMetadata(defaultImages: SceneImageInput[]) {
-    clearDefaultImageNotes();
     if (!Array.isArray(defaultImages) || defaultImages.length === 0) return;
+    const existingNoteObjects = canvas.getObjects().filter((obj) => isDefaultImageNoteObject(obj));
+    const hasPersistedNotes = existingNoteObjects.length > 0;
     const imageObjects = canvas.getObjects().filter((obj) => obj.type === "image") as fabric.Image[];
     const remainingImageObjects = [...imageObjects];
 
@@ -1047,7 +1048,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       });
       const usedIndex = remainingImageObjects.indexOf(imageObject);
       if (usedIndex >= 0) remainingImageObjects.splice(usedIndex, 1);
-      addNotesForPlacedImage(imageObject, defaultImage);
+      if (!hasPersistedNotes) addNotesForPlacedImage(imageObject, defaultImage);
     });
   }
 

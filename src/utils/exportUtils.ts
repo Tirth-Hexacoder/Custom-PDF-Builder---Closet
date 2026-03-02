@@ -285,7 +285,7 @@ function syncNotesOnLoadedCanvas(canvas: fabric.StaticCanvas, page: Page) {
   const defaultImages = resolvePageDefaultImages(page);
   if (defaultImages.length === 0) return;
   const existingNoteObjects = canvas.getObjects().filter((obj) => obj.data?.source === "default-image-note");
-  existingNoteObjects.forEach((obj) => canvas.remove(obj));
+  const hasPersistedNotes = existingNoteObjects.length > 0;
   const imageObjects = canvas.getObjects().filter((obj) => obj.type === "image") as fabric.Image[];
   const remainingImageObjects = [...imageObjects];
 
@@ -302,7 +302,7 @@ function syncNotesOnLoadedCanvas(canvas: fabric.StaticCanvas, page: Page) {
     });
     const usedIndex = remainingImageObjects.indexOf(imageObject);
     if (usedIndex >= 0) remainingImageObjects.splice(usedIndex, 1);
-    addImageNotes(canvas, imageObject, defaultImage.notes || []);
+    if (!hasPersistedNotes) addImageNotes(canvas, imageObject, defaultImage.notes || []);
   });
 }
 
