@@ -1,6 +1,6 @@
 import { observer } from "mobx-react-lite";
 import { useStore } from "../../state/Root";
-import { downloadSnapshotJson, exportSnapshotAsPdf } from "../../utils/documentAdapter";
+import { downloadSnapshotJson, exportSnapshotAsPdf } from "../../utils/downloadTab/documentAdapter";
 
 export const ExportTab = observer(function ExportTab() {
   const store = useStore();

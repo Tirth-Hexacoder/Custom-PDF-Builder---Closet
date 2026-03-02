@@ -6,7 +6,7 @@ import type { MutableRefObject } from "react";
 import type { Camera, Group, WebGLRenderer } from "three";
 import { useStore } from "../../state/Root";
 import toast from "react-hot-toast";
-import { captureCanvasWithProjectedObjectCropTimed } from "../../utils/sceneCaptureCrop";
+import { captureSceneImage } from "../../utils/sceneCapture";
 
 function CaptureBridge({
   glRef,
@@ -65,14 +65,7 @@ export function SceneTab({ isActive = true }: { isActive?: boolean }) {
       setRunningMs(performance.now() - processStart);
     }, 16);
 
-    const result = captureCanvasWithProjectedObjectCropTimed({
-      sourceCanvas: gl.domElement,
-      camera: cameraRef.current,
-      target: closetRootRef.current,
-      paddingPx: 2,
-      mimeType: "image/jpeg",
-      quality: 0.9
-    });
+    const result = captureSceneImage(gl, cameraRef.current, closetRootRef.current);
     const processMs = result.elapsedMs;
     stopTimer();
     setIsCapturing(false);

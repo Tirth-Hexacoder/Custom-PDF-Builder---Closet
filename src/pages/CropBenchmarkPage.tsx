@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import imageList from "../data/imageList.json";
-import { cropImageWhitespaceByPixels } from "../utils/pixelWhitespaceCrop";
+import { cropImageWhitespaceByPixels } from "../utils/captureCrop/pixelWhitespaceCrop";
+import {
+  BENCHMARK_OUTPUT_FORMAT_LABEL,
+  BENCHMARK_OUTPUT_MIME_TYPE,
+  BENCHMARK_OUTPUT_QUALITY,
+  formatBenchmarkMs,
+  getBenchmarkOutputFileName
+} from "../utils/benchmark/cropBenchmarkUtils";
 
 type ListImageEntry = {
   url?: string;
@@ -31,25 +38,6 @@ type BenchmarkRow = {
   blobBytes?: number;
   error?: string;
 };
-
-const OUTPUT_MIME_TYPE = "image/jpeg";
-const OUTPUT_FORMAT_LABEL = "JPEG";
-const OUTPUT_QUALITY = 0.9;
-
-function formatMs(ms: number) {
-  return `${ms.toFixed(2)} ms`;
-}
-
-function sanitizeFileName(rawName: string) {
-  return rawName.replace(/[<>:"/\\|?*]+/g, "_").replace(/\s+/g, " ").trim();
-}
-
-function getOutputFileName(url: string, index: number) {
-  const raw = url.split("/").pop() || `image-${index + 1}`;
-  const decoded = decodeURIComponent(raw);
-  const clean = sanitizeFileName(decoded.replace(/\.[^.]+$/, ""));
-  return `${String(index + 1).padStart(3, "0")}-${clean || "image"}-cropped.jpg`;
-}
 
 async function saveBlobToDirectory(handle: BrowserDirectoryHandle, fileName: string, blob: Blob) {
   const fileHandle = await handle.getFileHandle(fileName, { create: true });
@@ -136,13 +124,13 @@ export function CropBenchmarkPage() {
           whiteThreshold: 248,
           alphaThreshold: 8,
           paddingPx: 4,
-          mimeType: OUTPUT_MIME_TYPE,
-          quality: OUTPUT_QUALITY
+          mimeType: BENCHMARK_OUTPUT_MIME_TYPE,
+          quality: BENCHMARK_OUTPUT_QUALITY
         });
         processedOnlyMs += result.elapsedMs;
 
         if (outputDirRef.current && result.blob) {
-          const fileName = getOutputFileName(url, index);
+          const fileName = getBenchmarkOutputFileName(url, index);
           await saveBlobToDirectory(outputDirRef.current, fileName, result.blob);
         }
 
@@ -183,13 +171,13 @@ export function CropBenchmarkPage() {
   return (
     <section className="crop-benchmark-page">
       <header className="crop-benchmark-header">
-        <h1>Pixel-Based Crop Benchmark ({OUTPUT_FORMAT_LABEL})</h1>
+        <h1>Pixel-Based Crop Benchmark ({BENCHMARK_OUTPUT_FORMAT_LABEL})</h1>
         <div className="crop-benchmark-actions">
           <button className="run-benchmark-btn" onClick={pickOutputFolder} disabled={running}>
             Pick Output Folder
           </button>
           <button className="run-benchmark-btn" onClick={runBenchmark} disabled={running}>
-            {running ? "Running..." : `Run ${OUTPUT_FORMAT_LABEL} Benchmark`}
+            {running ? "Running..." : `Run ${BENCHMARK_OUTPUT_FORMAT_LABEL} Benchmark`}
           </button>
           <Link className="back-link-btn" to="/">
             Back To App
@@ -200,11 +188,11 @@ export function CropBenchmarkPage() {
       <div className="crop-benchmark-summary">
         <div>Total images: {urls.length}</div>
         <div>Processed: {completedCount}</div>
-        <div>Elapsed: {formatMs(elapsedMs)}</div>
-        <div>Total time: {totalMs === null ? "-" : formatMs(totalMs)}</div>
-        <div>Avg/image: {avgMs === null ? "-" : formatMs(avgMs)}</div>
+        <div>Elapsed: {formatBenchmarkMs(elapsedMs)}</div>
+        <div>Total time: {totalMs === null ? "-" : formatBenchmarkMs(totalMs)}</div>
+        <div>Avg/image: {avgMs === null ? "-" : formatBenchmarkMs(avgMs)}</div>
         <div>
-          Output folder: {outputFolderName ?? `Not selected (will not save ${OUTPUT_FORMAT_LABEL} files)`}
+          Output folder: {outputFolderName ?? `Not selected (will not save ${BENCHMARK_OUTPUT_FORMAT_LABEL} files)`}
         </div>
       </div>
 
@@ -217,9 +205,9 @@ export function CropBenchmarkPage() {
               <th>Image URL</th>
               <th>Time</th>
               <th>Process</th>
-              <th>{OUTPUT_FORMAT_LABEL} Encode</th>
+              <th>{BENCHMARK_OUTPUT_FORMAT_LABEL} Encode</th>
               <th>Source</th>
-              <th>Cropped ({OUTPUT_FORMAT_LABEL})</th>
+              <th>Cropped ({BENCHMARK_OUTPUT_FORMAT_LABEL})</th>
               <th>Blob Size</th>
               <th>Error</th>
             </tr>
@@ -230,9 +218,9 @@ export function CropBenchmarkPage() {
                 <td>{row.index + 1}</td>
                 <td>{row.status}</td>
                 <td className="url-cell">{row.url}</td>
-                <td>{row.elapsedMs === undefined ? "-" : formatMs(row.elapsedMs)}</td>
-                <td>{row.processingMs === undefined ? "-" : formatMs(row.processingMs)}</td>
-                <td>{row.encodeMs === undefined ? "-" : formatMs(row.encodeMs)}</td>
+                <td>{row.elapsedMs === undefined ? "-" : formatBenchmarkMs(row.elapsedMs)}</td>
+                <td>{row.processingMs === undefined ? "-" : formatBenchmarkMs(row.processingMs)}</td>
+                <td>{row.encodeMs === undefined ? "-" : formatBenchmarkMs(row.encodeMs)}</td>
                 <td>
                   {row.sourceWidth && row.sourceHeight ? `${row.sourceWidth}x${row.sourceHeight}` : "-"}
                 </td>

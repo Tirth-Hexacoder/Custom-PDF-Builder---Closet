@@ -182,7 +182,7 @@ function addOrUpdateContact(canvas: AnyCanvas, designerEmail?: string, designerM
         lineHeight: 1.25,
         fill: "#000000",
         textAlign: "center",
-        data: { id: CONTACT_INFO_ID }
+        data: { id: CONTACT_INFO_ID },
       });
       contact.editable = false;
     }

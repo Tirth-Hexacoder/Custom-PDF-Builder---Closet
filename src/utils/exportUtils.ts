@@ -11,8 +11,9 @@ import {
   chunkBomRows,
   wrapBomTextByChars
 } from "./bomTableUtils";
-import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
+import { applyPageDecorations, CONTACT_INFO_ID, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
 
+// Export pipeline: render page canvas, raster main visuals, then overlay/select text and BOM vectors.
 const PDF_PAGE_WIDTH_MM = 210;
 const PDF_PAGE_HEIGHT_MM = 297;
 const PX_TO_MM = 0.264583;
@@ -359,71 +360,87 @@ function flattenObjects(objects: fabric.Object[]) {
   return list;
 }
 
-// Checking If the Fabric Object Is The Text Type
 function isFabricTextObject(obj: fabric.Object) {
   return obj.type === "text" || obj.type === "i-text" || obj.type === "textbox";
 }
 
-// Checking The Font Family Of The Text
 function mapFontFamily(fontFamily?: string) {
   const value = (fontFamily || "").toLowerCase();
-  if (value.includes("courier") || value.includes("mono")) return "courier";
-  if (value.includes("times") || value.includes("georgia") || value.includes("serif")) return "times";
-  return "helvetica";
+  if (value.includes("courier") || value.includes("mono")) return "courier" as const;
+  if (value.includes("times") || value.includes("georgia") || value.includes("serif")) return "times" as const;
+  return "helvetica" as const;
 }
 
-// Bold, Italic Font Style Mapping
 function mapFontStyle(fontWeight: unknown, fontStyle: unknown) {
   const weightNumber = typeof fontWeight === "number" ? fontWeight : Number(fontWeight);
   const isBold = fontWeight === "bold" || Number.isFinite(weightNumber) && weightNumber >= 600;
   const isItalic = fontStyle === "italic";
-  if (isBold && isItalic) return "bolditalic";
-  if (isBold) return "bold";
-  if (isItalic) return "italic";
-  return "normal";
+  if (isBold && isItalic) return "bolditalic" as const;
+  if (isBold) return "bold" as const;
+  if (isItalic) return "italic" as const;
+  return "normal" as const;
 }
 
-// Color Apply On Text 
-function parseColor(fill: unknown) {
-  if (typeof fill !== "string") return { r: 17, g: 24, b: 39 };
-  const value = fill.trim().toLowerCase();
-
-  if (value.startsWith("#")) {
-    const hex = value.slice(1);
-    if (hex.length === 3) {
-      return {
-        r: parseInt(hex[0] + hex[0], 16),
-        g: parseInt(hex[1] + hex[1], 16),
-        b: parseInt(hex[2] + hex[2], 16)
-      };
-    }
-    if (hex.length >= 6) {
-      return {
-        r: parseInt(hex.slice(0, 2), 16),
-        g: parseInt(hex.slice(2, 4), 16),
-        b: parseInt(hex.slice(4, 6), 16)
-      };
-    }
-  }
-
-  const rgbMatch = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (rgbMatch) {
-    return {
-      r: Number(rgbMatch[1]),
-      g: Number(rgbMatch[2]),
-      b: Number(rgbMatch[3])
-    };
-  }
-
-  return { r: 17, g: 24, b: 39 };
-}
-
-// Getting The Angle Of The Object
 function getTextAngle(obj: fabric.Object) {
   const withTotalAngle = obj as fabric.Object & { getTotalAngle?: () => number };
   if (typeof withTotalAngle.getTotalAngle === "function") return withTotalAngle.getTotalAngle();
   return obj.angle || 0;
 }
+
+function normalizeAngle(angle: number) {
+  let value = angle % 360;
+  if (value > 180) value -= 360;
+  if (value < -180) value += 360;
+  return value;
+}
+
+function collectSelectableDecorText(canvas: fabric.StaticCanvas) {
+  const overlays: Array<{
+    text: string;
+    x: number;
+    y: number;
+    maxWidth?: number;
+    angle: number;
+    align: "left" | "center" | "right";
+    fontSize: number;
+    lineHeight: number;
+    fontFamily: "helvetica" | "times" | "courier";
+    fontStyle: "normal" | "bold" | "italic" | "bolditalic";
+  }> = [];
+
+  const textObjects = flattenObjects(canvas.getObjects())
+    .filter((obj) => isFabricTextObject(obj))
+    .map((obj) => obj as fabric.Text | fabric.IText | fabric.Textbox);
+
+  textObjects.forEach((obj) => {
+    const ownId = typeof obj.data?.id === "string" ? obj.data.id : "";
+    const groupId = typeof obj.group?.data?.id === "string" ? obj.group.data.id : "";
+    const isContact = ownId === CONTACT_INFO_ID;
+    const isHeaderPart = groupId === HEADER_ID;
+    if (!isContact && !isHeaderPart) return;
+
+    const text = obj.text || "";
+    if (!text.trim()) return;
+    const align = obj.textAlign === "center" || obj.textAlign === "right" ? obj.textAlign : "left";
+    const originX: "left" | "center" | "right" = align;
+    const anchor = obj.getPointByOrigin(originX, "top");
+    overlays.push({
+      text,
+      x: anchor.x,
+      y: anchor.y,
+      maxWidth: obj.type === "textbox" ? obj.getScaledWidth() : undefined,
+      angle: normalizeAngle(getTextAngle(obj)),
+      align,
+      fontSize: (obj.fontSize || 16) * Math.abs(obj.scaleY || 1),
+      lineHeight: obj.lineHeight || 1.16,
+      fontFamily: mapFontFamily(obj.fontFamily),
+      fontStyle: mapFontStyle(obj.fontWeight, obj.fontStyle)
+    });
+  });
+
+  return overlays;
+}
+
 
 function isBomId(id: unknown) {
   return typeof id === "string" && id.startsWith("bom-");
@@ -581,17 +598,6 @@ function drawBomTableVector(
   }
 }
 
-function isFiniteNumber(value: number) {
-  return Number.isFinite(value) && !Number.isNaN(value);
-}
-
-function normalizeAngle(angle: number) {
-  let value = angle % 360;
-  if (value > 180) value -= 360;
-  if (value < -180) value += 360;
-  return value;
-}
-
 // Generating The First Page of Exported PDF
 async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   const el = document.createElement("canvas");
@@ -623,52 +629,6 @@ async function buildPdfCoverImage(logoUrl: string): Promise<string> {
   const data = canvas.toDataURL({ format: "jpeg", quality: EXPORT_COVER_QUALITY, multiplier: 1 });
   canvas.dispose();
   return data;
-}
-
-// Building The Header In Exported PDF
-function buildHeaderParts(options: RenderImageOptions) {
-  const separator = " - ";
-  const headerText = options.headerText || "Modular Closets Renderings";
-  const headerProjectName = options.headerProjectName || "";
-  const headerCustomerName = options.headerCustomerName || "";
-
-  return [
-    { text: headerProjectName, fill: "#ea580c", fontStyle: "bold" as const },
-    { text: separator, fill: "#64748b", fontStyle: "normal" as const },
-    { text: headerText, fill: "#334155", fontStyle: "normal" as const },
-    { text: separator, fill: "#64748b", fontStyle: "normal" as const },
-    { text: headerCustomerName, fill: "#64748b", fontStyle: "normal" as const }
-  ].filter((item) => item.text !== "");
-}
-
-// Selectable Text Of The Header In Exported PDF
-function drawSelectableHeader(
-  doc: jsPDF,
-  options: RenderImageOptions,
-  renderingMode: "fill" | "invisible" = "fill"
-) {
-  const parts = buildHeaderParts(options);
-  if (parts.length === 0) return;
-
-  const fontSize = pxToPt(16);
-  const y = pxToMm(18);
-
-  let totalWidth = 0;
-  parts.forEach((part) => {
-    doc.setFont("helvetica", part.fontStyle);
-    doc.setFontSize(fontSize);
-    totalWidth += doc.getTextWidth(part.text);
-  });
-
-  let cursorX = (PDF_PAGE_WIDTH_MM - totalWidth) / 2;
-  parts.forEach((part) => {
-    const color = parseColor(part.fill);
-    doc.setFont("helvetica", part.fontStyle);
-    doc.setFontSize(fontSize);
-    doc.setTextColor(color.r, color.g, color.b);
-    doc.text(part.text, cursorX, y, { baseline: "top", renderingMode });
-    cursorX += doc.getTextWidth(part.text);
-  });
 }
 
 // Rendering a Page As Image 
@@ -715,65 +675,10 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     const bomBounds = hasBomData ? getBomBounds(canvas) : null;
     const canRenderBomAsVector = hasBomData && !!bomBounds;
 
-    const textObjects = flattenObjects(canvas.getObjects())
-      .filter((obj) => isFabricTextObject(obj))
-      .filter((obj) => !obj.group)
-      .filter((obj) => {
-        const ownId = obj.data?.id;
-        if (isBomId(ownId)) return !canRenderBomAsVector;
-        return true;
-      })
-      .map((obj) => obj as fabric.Text | fabric.IText | fabric.Textbox);
-
-    const textOverlays: Array<{
-      text: string;
-      x: number;
-      y: number;
-      maxWidth?: number;
-      angle: number;
-      align: "left" | "center" | "right";
-      fontSize: number;
-      lineHeight: number;
-      fontFamily: "helvetica" | "times" | "courier";
-      fontStyle: "normal" | "bold" | "italic" | "bolditalic";
-      color: { r: number; g: number; b: number };
-      renderingMode: "fill" | "invisible";
-    }> = [];
-    const hideForRaster: fabric.Object[] = [];
-
-    textObjects.forEach((obj) => {
-      const text = (obj.text || "").trim();
-      if (!text) return;
-      const angle = normalizeAngle(getTextAngle(obj));
-      const isRotated = Math.abs(angle) > 0.01;
-      const align = obj.textAlign === "center" || obj.textAlign === "right" ? obj.textAlign : "left";
-      const originX: "left" | "center" | "right" = align;
-      const anchor = obj.getPointByOrigin(originX, "top");
-      const x = anchor.x;
-      const y = anchor.y;
-      if (!isFiniteNumber(x) || !isFiniteNumber(y)) return;
-      if (!isRotated) hideForRaster.push(obj);
-      textOverlays.push({
-        text: obj.text || "",
-        x,
-        y,
-        maxWidth: !isRotated && obj.type === "textbox" ? obj.getScaledWidth() : undefined,
-        angle,
-        align,
-        fontSize: (obj.fontSize || 16) * Math.abs(obj.scaleY || 1),
-        lineHeight: obj.lineHeight || 1.16,
-        fontFamily: mapFontFamily(obj.fontFamily),
-        fontStyle: mapFontStyle(obj.fontWeight, obj.fontStyle),
-        color: parseColor(obj.fill),
-        renderingMode: isRotated ? "invisible" : "fill"
-      });
-    });
-
     if (canRenderBomAsVector) {
       const bomObjects = getBomObjectsForRasterHide(canvas);
       bomObjects.forEach((obj) => obj.set({ visible: false }));
     }
-    hideForRaster.forEach((obj) => obj.set({ visible: false }));
     setWhiteBackground(canvas);
     canvas.renderAll();
 
@@ -787,28 +692,29 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     if (pageCount > 0) doc.addPage();
     doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH_MM, PDF_PAGE_HEIGHT_MM, undefined, "SLOW");
 
-    textOverlays.forEach((item) => {
-      doc.setFont(item.fontFamily, item.fontStyle);
-      doc.setFontSize(Math.max(6, pxToPt(item.fontSize)));
-      doc.setLineHeightFactor(item.lineHeight);
-      doc.setTextColor(item.color.r, item.color.g, item.color.b);
-
-      const textOptions: {
-        baseline: "top";
-        align: "left" | "center" | "right";
-        angle?: number;
-        maxWidth?: number;
-        renderingMode: "fill" | "invisible";
-      } = {
-        baseline: "top",
-        align: item.align,
-        renderingMode: item.renderingMode
-      };
-
-      if (Math.abs(item.angle) > 0.01) textOptions.angle = -item.angle;
-      if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = pxToMm(item.maxWidth);
-      doc.text(item.text, pxToMm(item.x), pxToMm(item.y), textOptions);
-    });
+    if (hasBom) {
+      const decorTextOverlays = collectSelectableDecorText(canvas);
+      decorTextOverlays.forEach((item) => {
+        doc.setFont(item.fontFamily, item.fontStyle);
+        doc.setFontSize(Math.max(6, pxToPt(item.fontSize)));
+        doc.setLineHeightFactor(item.lineHeight);
+        doc.setTextColor(0, 0, 0);
+        const textOptions: {
+          baseline: "top";
+          align: "left" | "center" | "right";
+          angle?: number;
+          maxWidth?: number;
+          renderingMode: "invisible";
+        } = {
+          baseline: "top",
+          align: item.align,
+          renderingMode: "invisible"
+        };
+        if (Math.abs(item.angle) > 0.01) textOptions.angle = -item.angle;
+        if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = pxToMm(item.maxWidth);
+        doc.text(item.text, pxToMm(item.x), pxToMm(item.y), textOptions);
+      });
+    }
 
     if (canRenderBomAsVector && bomBounds) {
       const includeTotal = bomChunkIndex === bomRowChunks.length - 1;

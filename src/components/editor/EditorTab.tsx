@@ -1,56 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
 import { observer } from "mobx-react-lite";
 import { A4_PX } from "@closet/core";
-import toast from "react-hot-toast";
 import type { FabricCanvasHandle, Page, PendingCapture } from "../../types";
 import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
 import { renderPagePreview } from "../../utils/pagePreviewUtils";
-import { parseSnapshotJsonText } from "../../utils/documentAdapter";
+import { useSnapshotImport } from "./hooks/useSnapshotImport";
+import {
+  MAX_ZOOM_PERCENT,
+  MIN_ZOOM_PERCENT,
+  clampZoom,
+  computeFitZoom,
+  getPageDefaultImageKey,
+  getPageDefaultImageUrls
+} from "../../utils/editor/editorTabUtils";
 
+// EditorTab composes toolbar, trays, and canvas shell while delegating heavy logic to utils/hooks.
 const IMAGE_DRAG_MIME = "application/x-pdf-builder-image-url";
-const MIN_ZOOM_PERCENT = 30;
-const MAX_ZOOM_PERCENT = 150;
-
-const getPageDefaultImageUrls = (page?: Page) => {
-  if (!page) return [] as string[];
-  if (Array.isArray(page.defaultImages) && page.defaultImages.length > 0) {
-    return page.defaultImages.map((item) => item.url).filter((url): url is string => !!url);
-  }
-  const url = page?.defaultImage?.url || page?.defaultImageUrl || "";
-  return url ? [url] : [];
-};
-
-const getPageDefaultImageUrl = (page?: Page) => getPageDefaultImageUrls(page)[0] || "";
-
-const getPageDefaultImageKey = (page?: Page) => {
-  if (!page) return "";
-  const layout = page.defaultLayout || "";
-  const images = Array.isArray(page.defaultImages) && page.defaultImages.length > 0
-    ? page.defaultImages
-    : (page.defaultImage?.url ? [page.defaultImage] : []);
-  if (images.length > 0) {
-    return JSON.stringify({
-      layout,
-      items: images.map((img) => ({
-        url: img.url,
-        notes: Array.isArray(img.notes)
-          ? img.notes.map((note) => ({
-            id: note.id,
-            text: note.text,
-            xPercent: note.xPercent,
-            yPercent: note.yPercent,
-            fontSize: note.fontSize,
-            fontColor: note.fontColor,
-            fontType: note.fontType
-          }))
-          : []
-      }))
-    });
-  }
-  return `${layout}|${getPageDefaultImageUrl(page)}`;
-};
 
 export const EditorTab = observer(function EditorTab() {
 
@@ -70,7 +36,6 @@ export const EditorTab = observer(function EditorTab() {
   const previewProcessingRef = useRef(false);
   const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageKey?: string }>>({});
   const pendingTrayDropsRef = useRef<Array<{ pageId: string; url: string }>>([]);
-  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const firstPageRenderRef = useRef(true);
 
@@ -93,6 +58,7 @@ export const EditorTab = observer(function EditorTab() {
   const [zoomPercent, setZoomPercent] = useState(100);
   const [pageInput, setPageInput] = useState("1");
   const [fitMode, setFitMode] = useState<"none" | "width" | "height">("none");
+  const { importInputRef, triggerImportPicker, onImportJsonFile } = useSnapshotImport(store);
 
   const activePage = store.pages.find((p) => p.id === store.activePageId) || store.pages[0];
   const activePageIndex = Math.max(
@@ -114,25 +80,14 @@ export const EditorTab = observer(function EditorTab() {
   const getDraggedImageUrl = (event: React.DragEvent) =>
     event.dataTransfer.getData(IMAGE_DRAG_MIME);
 
-  const getFitZoom = (mode: "width" | "height") => {
-    const viewport = viewportRef.current;
-    if (!viewport) return 100;
-    const availableWidth = Math.max(280, viewport.clientWidth - 96);
-    const availableHeight = Math.max(280, viewport.clientHeight);
-    const widthZoom = (availableWidth / A4_PX.width) * 100;
-    const heightZoom = (availableHeight / A4_PX.height) * 100;
-    return Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, mode === "width" ? widthZoom : heightZoom));
-  };
-
   const applyFitMode = (mode: "width" | "height") => {
     setFitMode(mode);
-    setZoomPercent(Math.round(getFitZoom(mode)));
+    setZoomPercent(Math.round(computeFitZoom(mode, viewportRef.current)));
   };
 
   const setManualZoom = (next: number) => {
-    const clamped = Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, Math.round(next)));
     setFitMode("none");
-    setZoomPercent(clamped);
+    setZoomPercent(clampZoom(next));
   };
 
   const goToPageFromInput = () => {
@@ -145,41 +100,6 @@ export const EditorTab = observer(function EditorTab() {
     const page = store.pages[target - 1];
     if (page) store.setActivePageId(page.id);
     setPageInput(String(target));
-  };
-
-  const triggerImportPicker = () => {
-    importInputRef.current?.click();
-  };
-
-  const onImportJsonFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-
-    const content = await file.text();
-    const { snapshot, error } = parseSnapshotJsonText(content);
-    if (!snapshot) {
-      toast.error(error || "Failed to parse snapshot JSON.");
-      return;
-    }
-
-    const current = store.toDocumentSnapshot();
-    const isDifferentProject =
-      (snapshot.meta.projectId || "") !== (current.meta.projectId || "") ||
-      (snapshot.meta.projectName || "") !== (current.meta.projectName || "") ||
-      (snapshot.meta.customerName || "") !== (current.meta.customerName || "");
-
-    if (isDifferentProject) {
-      toast.error("Imported file appears to be from a different project.");
-    }
-
-    const loaded = store.importSnapshot(snapshot);
-    if (!loaded) {
-      toast.error("Unable to load this JSON snapshot.");
-      return;
-    }
-
-    toast.success("JSON snapshot imported successfully.");
   };
 
   // Adding Image on Canvas (Page) and Processed Capture Array
@@ -238,7 +158,7 @@ export const EditorTab = observer(function EditorTab() {
 
   useEffect(() => {
     if (fitMode === "none") return;
-    setZoomPercent(Math.round(getFitZoom(fitMode)));
+    setZoomPercent(Math.round(computeFitZoom(fitMode, viewportRef.current)));
   }, [fitMode, store.activePageId, store.pages.length]);
 
   useEffect(() => {

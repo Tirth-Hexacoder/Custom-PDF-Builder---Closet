@@ -1,6 +1,6 @@
 import type { ProposalDocumentSnapshot } from "../types";
 import { Store } from "../state/Store";
-import { exportSnapshotAsPdf } from "../utils/documentAdapter";
+import { exportSnapshotAsPdf } from "../utils/downloadTab/documentAdapter";
 
 export function createStoreFromSnapshot(snapshot?: ProposalDocumentSnapshot | null) {
   return new Store(snapshot ?? null);

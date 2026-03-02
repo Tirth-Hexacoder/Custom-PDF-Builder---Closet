@@ -2,7 +2,14 @@ import { A4_PX } from "@closet/core";
 import { fabric } from "fabric";
 import type { CreateCanvasOptions, FabricCanvasHandle, FabricJSON, Page, SceneImageInput, SceneImageNote } from "../types";
 import { applyPageDecorations, bringDecorationsToFront, isDecorationId, isLockedDecorationId } from "./pageDecorUtils";
+import {
+  applyImageCropFromPointer,
+  ensureImageCropSourceSize,
+  resolveCropCursorStyle,
+  type CropSide
+} from "./canvas/imageCrop";
 
+// createPageCanvas is the editor runtime engine for Fabric lifecycle, object rules, and toolbar APIs.
 const GUIDE_SNAP_THRESHOLD = 6;
 const MIN_IMAGE_CROP_SIZE = 24;
 const BOM_TABLE_GROUP_ID = "bom-table-group";
@@ -118,96 +125,6 @@ function resolvePageDefaultLayout(page: Page | undefined, imageCount: number) {
 
 function isDefaultImageNoteObject(obj: fabric.Object | null | undefined) {
   return !!obj && !!obj.data && obj.data.source === "default-image-note";
-}
-
-function ensureImageCropSourceSize(image: fabric.Image) {
-  const data = (image.data || {}) as Record<string, unknown>;
-  const element = image.getElement() as (HTMLImageElement & { naturalWidth?: number; naturalHeight?: number }) | null;
-  const sourceWidth = typeof data.cropSourceWidth === "number"
-    ? data.cropSourceWidth
-    : element?.naturalWidth || image.width || 0;
-  const sourceHeight = typeof data.cropSourceHeight === "number"
-    ? data.cropSourceHeight
-    : element?.naturalHeight || image.height || 0;
-  image.set({
-    data: {
-      ...data,
-      cropSourceWidth: sourceWidth,
-      cropSourceHeight: sourceHeight
-    }
-  });
-  return { sourceWidth, sourceHeight };
-}
-
-type CropSide = "left" | "right" | "top" | "bottom";
-
-function applyImageCropFromPointer(image: fabric.Image, pointer: { x: number; y: number }, sides: CropSide[]) {
-  const { sourceWidth, sourceHeight } = ensureImageCropSourceSize(image);
-  if (!sourceWidth || !sourceHeight) return false;
-
-  const cropX = image.cropX || 0;
-  const cropY = image.cropY || 0;
-  const visibleWidth = image.width || sourceWidth;
-  const visibleHeight = image.height || sourceHeight;
-  const scaleX = Math.max(Math.abs(image.scaleX || 1), 0.0001);
-  const scaleY = Math.max(Math.abs(image.scaleY || 1), 0.0001);
-  const center = image.getCenterPoint();
-  const angle = (image.angle || 0) * (Math.PI / 180);
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const axisX = { x: cos, y: sin };
-  const axisY = { x: -sin, y: cos };
-  const vectorToPointer = { x: pointer.x - center.x, y: pointer.y - center.y };
-  const halfWidthOnCanvas = (visibleWidth * scaleX) / 2;
-  const halfHeightOnCanvas = (visibleHeight * scaleY) / 2;
-  const projectedX = vectorToPointer.x * axisX.x + vectorToPointer.y * axisX.y;
-  const projectedY = vectorToPointer.x * axisY.x + vectorToPointer.y * axisY.y;
-  const pointerFromLeftRaw = (projectedX + halfWidthOnCanvas) / scaleX;
-  const pointerFromTopRaw = (projectedY + halfHeightOnCanvas) / scaleY;
-
-  let nextCropX = cropX;
-  let nextCropY = cropY;
-  let nextWidth = visibleWidth;
-  let nextHeight = visibleHeight;
-
-  if (sides.includes("right")) {
-    nextWidth = clamp(pointerFromLeftRaw, MIN_IMAGE_CROP_SIZE, sourceWidth - nextCropX);
-  }
-  if (sides.includes("left")) {
-    const sourceRight = cropX + visibleWidth;
-    const desiredWidth = clamp(visibleWidth - pointerFromLeftRaw, MIN_IMAGE_CROP_SIZE, sourceRight);
-    nextCropX = clamp(sourceRight - desiredWidth, 0, sourceWidth - MIN_IMAGE_CROP_SIZE);
-    nextWidth = clamp(sourceRight - nextCropX, MIN_IMAGE_CROP_SIZE, sourceWidth - nextCropX);
-  }
-  if (sides.includes("bottom")) {
-    nextHeight = clamp(pointerFromTopRaw, MIN_IMAGE_CROP_SIZE, sourceHeight - nextCropY);
-  }
-  if (sides.includes("top")) {
-    const sourceBottom = cropY + visibleHeight;
-    const desiredHeight = clamp(visibleHeight - pointerFromTopRaw, MIN_IMAGE_CROP_SIZE, sourceBottom);
-    nextCropY = clamp(sourceBottom - desiredHeight, 0, sourceHeight - MIN_IMAGE_CROP_SIZE);
-    nextHeight = clamp(sourceBottom - nextCropY, MIN_IMAGE_CROP_SIZE, sourceHeight - nextCropY);
-  }
-
-  const preserveRight = sides.includes("left") && !sides.includes("right");
-  const preserveLeft = sides.includes("right") && !sides.includes("left");
-  const preserveBottom = sides.includes("top") && !sides.includes("bottom");
-  const preserveTop = sides.includes("bottom") && !sides.includes("top");
-  const originX: "left" | "center" | "right" = preserveRight ? "right" : preserveLeft ? "left" : "center";
-  const originY: "top" | "center" | "bottom" = preserveBottom ? "bottom" : preserveTop ? "top" : "center";
-  const anchor = image.getPointByOrigin(originX, originY);
-
-  image.set({
-    cropX: nextCropX,
-    cropY: nextCropY,
-    width: nextWidth,
-    height: nextHeight
-  });
-  image.setPositionByOrigin(anchor, originX, originY);
-  image.setCoords();
-  image.dirty = true;
-  image.canvas?.requestRenderAll();
-  return true;
 }
 
 // Rotation Icon Addition
@@ -352,17 +269,14 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       y,
       cursorStyle,
       cursorStyleHandler: (eventData, control, target) => {
-        const fallback = cursorStyle;
-        const defaultControl = fabric.Object.prototype.controls?.[controlKey];
-        if (!defaultControl?.cursorStyleHandler) return fallback;
-        return defaultControl.cursorStyleHandler(eventData, control, target);
+        return resolveCropCursorStyle(controlKey, cursorStyle, eventData as MouseEvent, control, target);
       },
       actionName: "crop",
       actionHandler: (eventData, transform) => {
         const target = transform.target;
         if (!isImageObject(target) || !target.canvas) return false;
         const pointer = target.canvas.getPointer(eventData as MouseEvent);
-        return applyImageCropFromPointer(target, pointer, sides);
+        return applyImageCropFromPointer(target, pointer, sides, MIN_IMAGE_CROP_SIZE);
       }
     });
 
@@ -577,6 +491,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     if (!target) return false;
     if (isBomTableEntity(target)) return false;
     if (isLockedDecorationId(target.data?.id)) return false;
+    if (isUserLockedObject(target)) return false;
     return true;
   }
 
@@ -1495,25 +1410,6 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       ctx.restore();
     }
 
-    const activeObjects = canvas.getActiveObjects();
-    activeObjects.forEach((obj) => {
-      if (!isUserLockedObject(obj)) return;
-      const bounds = obj.getBoundingRect(true, true);
-      const x = bounds.left + bounds.width - 8;
-      const y = bounds.top + 8;
-      ctx.save();
-      ctx.fillStyle = "#111827";
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.rect(x - 7, y + 1, 14, 11);
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(x, y, 4.2, Math.PI, 0);
-      ctx.stroke();
-      ctx.restore();
-    });
   }
 
   function onObjectMoving(event: fabric.IEvent) {
