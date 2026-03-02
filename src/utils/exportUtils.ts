@@ -11,7 +11,14 @@ import {
   chunkBomRows,
   wrapBomTextByChars
 } from "./bomTableUtils";
-import { applyPageDecorations, CONTACT_INFO_ID, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
+import {
+  applyPageDecorations,
+  CONTACT_INFO_ID,
+  DATE_ID,
+  DEFAULT_FOOTER_LOGO_URL,
+  HEADER_ID,
+  PAGE_NUMBER_ID
+} from "./pageDecorUtils";
 
 // Export pipeline: render page canvas, raster main visuals, then overlay/select text and BOM vectors.
 const PDF_PAGE_WIDTH_MM = 210;
@@ -416,8 +423,10 @@ function collectSelectableDecorText(canvas: fabric.StaticCanvas) {
     const ownId = typeof obj.data?.id === "string" ? obj.data.id : "";
     const groupId = typeof obj.group?.data?.id === "string" ? obj.group.data.id : "";
     const isContact = ownId === CONTACT_INFO_ID;
+    const isDate = ownId === DATE_ID;
+    const isPageNumber = ownId === PAGE_NUMBER_ID;
     const isHeaderPart = groupId === HEADER_ID;
-    if (!isContact && !isHeaderPart) return;
+    if (!isContact && !isHeaderPart && !isDate && !isPageNumber) return;
 
     const text = obj.text || "";
     if (!text.trim()) return;

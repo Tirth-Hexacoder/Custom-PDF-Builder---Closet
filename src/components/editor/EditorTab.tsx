@@ -475,7 +475,7 @@ export const EditorTab = observer(function EditorTab() {
 
           <button className="tool-btn" onClick={triggerImportPicker} title="Import JSON Snapshot">
             <i className="fa-solid fa-file-arrow-up"></i>
-            <span>Import JSON</span>
+            <span>Import</span>
           </button>
           <input
             ref={importInputRef}
