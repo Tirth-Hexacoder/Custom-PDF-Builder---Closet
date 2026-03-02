@@ -623,7 +623,7 @@ button {
 
 .tool-btn {
   height: 38px;
-  padding: 0 14px;
+  padding: 0 10px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--secondary);
