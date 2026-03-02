@@ -141,50 +141,69 @@ function ensureImageCropSourceSize(image: fabric.Image) {
 
 type CropSide = "left" | "right" | "top" | "bottom";
 
-function applyImageCropFromPointer(image: fabric.Image, pointer: { x: number; y: number }, side: CropSide) {
-  if (Math.abs(image.angle || 0) > 0.01) return false;
+function applyImageCropFromPointer(image: fabric.Image, pointer: { x: number; y: number }, sides: CropSide[]) {
   const { sourceWidth, sourceHeight } = ensureImageCropSourceSize(image);
   if (!sourceWidth || !sourceHeight) return false;
 
-  const scaleX = Math.abs(image.scaleX || 1);
-  const scaleY = Math.abs(image.scaleY || 1);
   const cropX = image.cropX || 0;
   const cropY = image.cropY || 0;
   const visibleWidth = image.width || sourceWidth;
   const visibleHeight = image.height || sourceHeight;
-  const left = image.left || 0;
-  const top = image.top || 0;
-  const right = left + visibleWidth * scaleX;
-  const bottom = top + visibleHeight * scaleY;
+  const scaleX = Math.max(Math.abs(image.scaleX || 1), 0.0001);
+  const scaleY = Math.max(Math.abs(image.scaleY || 1), 0.0001);
+  const center = image.getCenterPoint();
+  const angle = (image.angle || 0) * (Math.PI / 180);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const axisX = { x: cos, y: sin };
+  const axisY = { x: -sin, y: cos };
+  const vectorToPointer = { x: pointer.x - center.x, y: pointer.y - center.y };
+  const halfWidthOnCanvas = (visibleWidth * scaleX) / 2;
+  const halfHeightOnCanvas = (visibleHeight * scaleY) / 2;
+  const projectedX = vectorToPointer.x * axisX.x + vectorToPointer.y * axisX.y;
+  const projectedY = vectorToPointer.x * axisY.x + vectorToPointer.y * axisY.y;
+  const pointerFromLeftRaw = (projectedX + halfWidthOnCanvas) / scaleX;
+  const pointerFromTopRaw = (projectedY + halfHeightOnCanvas) / scaleY;
 
-  if (side === "right") {
-    const nextWidth = clamp((pointer.x - left) / scaleX, MIN_IMAGE_CROP_SIZE, sourceWidth - cropX);
-    image.set({ width: nextWidth });
-  } else if (side === "left") {
+  let nextCropX = cropX;
+  let nextCropY = cropY;
+  let nextWidth = visibleWidth;
+  let nextHeight = visibleHeight;
+
+  if (sides.includes("right")) {
+    nextWidth = clamp(pointerFromLeftRaw, MIN_IMAGE_CROP_SIZE, sourceWidth - nextCropX);
+  }
+  if (sides.includes("left")) {
     const sourceRight = cropX + visibleWidth;
-    const desiredWidth = clamp((right - pointer.x) / scaleX, MIN_IMAGE_CROP_SIZE, sourceRight);
-    const nextCropX = clamp(sourceRight - desiredWidth, 0, sourceWidth - MIN_IMAGE_CROP_SIZE);
-    const nextWidth = clamp(sourceRight - nextCropX, MIN_IMAGE_CROP_SIZE, sourceWidth - nextCropX);
-    image.set({
-      cropX: nextCropX,
-      width: nextWidth,
-      left: right - nextWidth * scaleX
-    });
-  } else if (side === "bottom") {
-    const nextHeight = clamp((pointer.y - top) / scaleY, MIN_IMAGE_CROP_SIZE, sourceHeight - cropY);
-    image.set({ height: nextHeight });
-  } else {
+    const desiredWidth = clamp(visibleWidth - pointerFromLeftRaw, MIN_IMAGE_CROP_SIZE, sourceRight);
+    nextCropX = clamp(sourceRight - desiredWidth, 0, sourceWidth - MIN_IMAGE_CROP_SIZE);
+    nextWidth = clamp(sourceRight - nextCropX, MIN_IMAGE_CROP_SIZE, sourceWidth - nextCropX);
+  }
+  if (sides.includes("bottom")) {
+    nextHeight = clamp(pointerFromTopRaw, MIN_IMAGE_CROP_SIZE, sourceHeight - nextCropY);
+  }
+  if (sides.includes("top")) {
     const sourceBottom = cropY + visibleHeight;
-    const desiredHeight = clamp((bottom - pointer.y) / scaleY, MIN_IMAGE_CROP_SIZE, sourceBottom);
-    const nextCropY = clamp(sourceBottom - desiredHeight, 0, sourceHeight - MIN_IMAGE_CROP_SIZE);
-    const nextHeight = clamp(sourceBottom - nextCropY, MIN_IMAGE_CROP_SIZE, sourceHeight - nextCropY);
-    image.set({
-      cropY: nextCropY,
-      height: nextHeight,
-      top: bottom - nextHeight * scaleY
-    });
+    const desiredHeight = clamp(visibleHeight - pointerFromTopRaw, MIN_IMAGE_CROP_SIZE, sourceBottom);
+    nextCropY = clamp(sourceBottom - desiredHeight, 0, sourceHeight - MIN_IMAGE_CROP_SIZE);
+    nextHeight = clamp(sourceBottom - nextCropY, MIN_IMAGE_CROP_SIZE, sourceHeight - nextCropY);
   }
 
+  const preserveRight = sides.includes("left") && !sides.includes("right");
+  const preserveLeft = sides.includes("right") && !sides.includes("left");
+  const preserveBottom = sides.includes("top") && !sides.includes("bottom");
+  const preserveTop = sides.includes("bottom") && !sides.includes("top");
+  const originX: "left" | "center" | "right" = preserveRight ? "right" : preserveLeft ? "left" : "center";
+  const originY: "top" | "center" | "bottom" = preserveBottom ? "bottom" : preserveTop ? "top" : "center";
+  const anchor = image.getPointByOrigin(originX, originY);
+
+  image.set({
+    cropX: nextCropX,
+    cropY: nextCropY,
+    width: nextWidth,
+    height: nextHeight
+  });
+  image.setPositionByOrigin(anchor, originX, originY);
   image.setCoords();
   image.dirty = true;
   image.canvas?.requestRenderAll();
@@ -300,6 +319,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   canvas.centeredRotation = true;
 
   let insertTextModeActive = false;
+  let imageCropModeActive = false;
 
   const applyInsertTextCursor = () => {
     const cursor = insertTextModeActive ? "crosshair" : "default";
@@ -320,29 +340,49 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     canvas.setBackgroundColor("#ffffff", () => undefined);
   };
 
-  const createImageCropControl = (side: CropSide, x: number, y: number, cursorStyle: string) =>
+  const createImageCropControl = (
+    controlKey: "tl" | "tr" | "bl" | "br" | "ml" | "mr" | "mt" | "mb",
+    sides: CropSide[],
+    x: number,
+    y: number,
+    cursorStyle: string
+  ) =>
     new fabric.Control({
       x,
       y,
       cursorStyle,
+      cursorStyleHandler: (eventData, control, target) => {
+        const fallback = cursorStyle;
+        const defaultControl = fabric.Object.prototype.controls?.[controlKey];
+        if (!defaultControl?.cursorStyleHandler) return fallback;
+        return defaultControl.cursorStyleHandler(eventData, control, target);
+      },
       actionName: "crop",
       actionHandler: (eventData, transform) => {
         const target = transform.target;
         if (!isImageObject(target) || !target.canvas) return false;
         const pointer = target.canvas.getPointer(eventData as MouseEvent);
-        return applyImageCropFromPointer(target, pointer, side);
+        return applyImageCropFromPointer(target, pointer, sides);
       }
     });
 
   const applyImageControls = (obj: fabric.Object | null | undefined) => {
     if (!isImageObject(obj)) return;
     ensureImageCropSourceSize(obj);
+    if (!imageCropModeActive) {
+      obj.controls = { ...fabric.Object.prototype.controls };
+      return;
+    }
     obj.controls = {
       ...fabric.Object.prototype.controls,
-      ml: createImageCropControl("left", -0.5, 0, "ew-resize"),
-      mr: createImageCropControl("right", 0.5, 0, "ew-resize"),
-      mt: createImageCropControl("top", 0, -0.5, "ns-resize"),
-      mb: createImageCropControl("bottom", 0, 0.5, "ns-resize")
+      tl: createImageCropControl("tl", ["left", "top"], -0.5, -0.5, "nwse-resize"),
+      tr: createImageCropControl("tr", ["right", "top"], 0.5, -0.5, "nesw-resize"),
+      bl: createImageCropControl("bl", ["left", "bottom"], -0.5, 0.5, "nesw-resize"),
+      br: createImageCropControl("br", ["right", "bottom"], 0.5, 0.5, "nwse-resize"),
+      ml: createImageCropControl("ml", ["left"], -0.5, 0, "ew-resize"),
+      mr: createImageCropControl("mr", ["right"], 0.5, 0, "ew-resize"),
+      mt: createImageCropControl("mt", ["top"], 0, -0.5, "ns-resize"),
+      mb: createImageCropControl("mb", ["bottom"], 0, 0.5, "ns-resize")
     };
   };
 
@@ -1435,12 +1475,6 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       ctx.restore();
     }
 
-    if (shouldRenderRotation && rotationGuideState.point) {
-      const { angle, point } = rotationGuideState;
-      const normalized = ((Math.round(angle) % 360) + 360) % 360;
-      drawLabel(`${normalized}\u00b0`, point.x, point.y - 18);
-    }
-
     if (alignGuideState.x !== null || alignGuideState.y !== null) {
       ctx.save();
       ctx.strokeStyle = "#16a34a";
@@ -1923,6 +1957,11 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     setInsertTextMode(enabled) {
       insertTextModeActive = enabled;
       applyInsertTextCursor();
+      canvas.requestRenderAll();
+    },
+    setImageCropMode(enabled) {
+      imageCropModeActive = !!enabled;
+      applyImageControlsToCanvas();
       canvas.requestRenderAll();
     },
     deleteActive() {

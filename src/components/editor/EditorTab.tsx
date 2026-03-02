@@ -85,6 +85,7 @@ export const EditorTab = observer(function EditorTab() {
   const [hasSelection, setHasSelection] = useState(false);
   const [canEditTextStyle, setCanEditTextStyle] = useState(false);
   const [isTextInsertMode, setIsTextInsertMode] = useState(false);
+  const [isCropMode, setIsCropMode] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [pageInput, setPageInput] = useState("1");
   const [fitMode, setFitMode] = useState<"none" | "width" | "height">("none");
@@ -206,6 +207,10 @@ export const EditorTab = observer(function EditorTab() {
   }, [isTextInsertMode]);
 
   useEffect(() => {
+    canvasRef.current?.setImageCropMode?.(!!isCropMode);
+  }, [isCropMode]);
+
+  useEffect(() => {
     if (!isTextInsertMode) return;
     const onMouseDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
@@ -312,6 +317,15 @@ export const EditorTab = observer(function EditorTab() {
           >
             <i className="fa-solid fa-font"></i>
             <span>Text</span>
+          </button>
+
+          <button
+            className={`tool-btn ${isCropMode ? "active" : ""}`}
+            onClick={() => setIsCropMode((prev) => !prev)}
+            title={isCropMode ? "Disable Crop Mode" : "Enable Crop Mode"}
+          >
+            <i className="fa-solid fa-crop"></i>
+            <span>Crop</span>
           </button>
 
           <div className="toolbar-divider"></div>

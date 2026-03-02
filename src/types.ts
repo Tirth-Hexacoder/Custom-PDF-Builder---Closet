@@ -78,6 +78,7 @@ export type FabricCanvasHandle = {
   toggleLock: () => void;
   toggleVisibility: () => void;
   setInsertTextMode: (enabled: boolean) => void;
+  setImageCropMode: (enabled: boolean) => void;
   deleteActive: () => void;
   getPageImage: () => Promise<string>;
 };
