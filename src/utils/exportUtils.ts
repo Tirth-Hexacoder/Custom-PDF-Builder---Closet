@@ -692,6 +692,17 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     if (pageCount > 0) doc.addPage();
     doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH_MM, PDF_PAGE_HEIGHT_MM, undefined, "SLOW");
 
+    if (canRenderBomAsVector && bomBounds) {
+      const includeTotal = bomChunkIndex === bomRowChunks.length - 1;
+      drawBomTableVector(
+        doc,
+        bomRows,
+        options.tableData?.grandTotal || "",
+        includeTotal,
+        bomBounds
+      );
+    }
+
     if (hasBom) {
       const decorTextOverlays = collectSelectableDecorText(canvas);
       decorTextOverlays.forEach((item) => {
@@ -703,7 +714,6 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
           baseline: "top";
           align: "left" | "center" | "right";
           angle?: number;
-          maxWidth?: number;
           renderingMode: "invisible";
         } = {
           baseline: "top",
@@ -711,20 +721,16 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
           renderingMode: "invisible"
         };
         if (Math.abs(item.angle) > 0.01) textOptions.angle = -item.angle;
-        if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = pxToMm(item.maxWidth);
+        const lines = item.text.split(/\r?\n/);
+        if (lines.length > 1) {
+          const lineStepMm = pxToMm(item.fontSize * item.lineHeight);
+          lines.forEach((line, lineIndex) => {
+            doc.text(line, pxToMm(item.x), pxToMm(item.y) + lineStepMm * lineIndex, textOptions);
+          });
+          return;
+        }
         doc.text(item.text, pxToMm(item.x), pxToMm(item.y), textOptions);
       });
-    }
-
-    if (canRenderBomAsVector && bomBounds) {
-      const includeTotal = bomChunkIndex === bomRowChunks.length - 1;
-      drawBomTableVector(
-        doc,
-        bomRows,
-        options.tableData?.grandTotal || "",
-        includeTotal,
-        bomBounds
-      );
     }
 
     canvas.dispose();
