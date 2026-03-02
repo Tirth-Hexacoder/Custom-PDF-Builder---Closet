@@ -16,6 +16,9 @@ export const DEFAULT_STAMP_URL = "/stamp.jpg";
 
 const LOCKED_DECORATION_IDS = new Set([HEADER_ID, FOOTER_ID, STAMP_ID, DATE_ID, PAGE_NUMBER_ID]);
 const ALL_DECORATION_IDS = new Set([HEADER_ID, FOOTER_ID, STAMP_ID, DATE_ID, PAGE_NUMBER_ID, CONTACT_INFO_ID]);
+const CONTACT_BOX_WIDTH = 520;
+const CONTACT_BOX_TOP = 70;
+const CONTACT_FONT_SIZE = 16;
 
 function canUseCanvas(canvas: AnyCanvas, isActive?: () => boolean) {
   if (isActive && !isActive()) return false;
@@ -170,7 +173,18 @@ function addOrUpdateContact(canvas: AnyCanvas, designerEmail?: string, designerM
   const existing = findById(canvas, CONTACT_INFO_ID);
   if (existing) {
     if ("text" in existing) {
-      (existing as fabric.Textbox).set({ text });
+      const contact = existing as fabric.Textbox & { editable?: boolean };
+      contact.set({
+        text,
+        fontFamily: "Inter",
+        fontSize: CONTACT_FONT_SIZE,
+        fontWeight: "600",
+        lineHeight: 1.25,
+        fill: "#000000",
+        textAlign: "center",
+        data: { id: CONTACT_INFO_ID }
+      });
+      contact.editable = false;
     }
     moveOnlyObject(existing);
     return;
@@ -178,12 +192,13 @@ function addOrUpdateContact(canvas: AnyCanvas, designerEmail?: string, designerM
 
   if (!addIfMissing) return;
 
+  const left = (canvas.getWidth() - CONTACT_BOX_WIDTH) / 2;
   const contact = new fabric.Textbox(text, {
-    left: (canvas.getWidth() - 360) / 2,
-    top: 70,
-    width: 400,
+    left,
+    top: CONTACT_BOX_TOP,
+    width: CONTACT_BOX_WIDTH,
     fontFamily: "Inter",
-    fontSize: 16,
+    fontSize: CONTACT_FONT_SIZE,
     fontWeight: "600",
     lineHeight: 1.25,
     fill: "#000000",

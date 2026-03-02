@@ -13,14 +13,24 @@ import {
 } from "./bomTableUtils";
 import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
 
-const PDF_PAGE_WIDTH = 595;
-const PDF_PAGE_HEIGHT = 842;
+const PDF_PAGE_WIDTH_MM = 210;
+const PDF_PAGE_HEIGHT_MM = 297;
+const PX_TO_MM = 0.264583;
+const PX_TO_PT = 0.75;
 const EXPORT_PAGE_MULTIPLIER = 1;
 const EXPORT_PAGE_QUALITY = 0.86;
 const EXPORT_COVER_QUALITY = 0.86;
 
 function setWhiteBackground(canvas: fabric.StaticCanvas) {
   canvas.setBackgroundColor("#ffffff", () => undefined);
+}
+
+function pxToMm(value: number) {
+  return value * PX_TO_MM;
+}
+
+function pxToPt(value: number) {
+  return value * PX_TO_PT;
 }
 
 function normalizeDimmedOpacityForExport(canvas: fabric.StaticCanvas) {
@@ -485,20 +495,18 @@ function drawBomTableVector(
   rows: TableRow[],
   grandTotal: string,
   includeTotal: boolean,
-  bounds: { left: number; top: number; width: number; height: number },
-  scaleX: number,
-  scaleY: number
+  bounds: { left: number; top: number; width: number; height: number }
 ) {
   const baseHeight = getBomTableBaseHeight(rows, includeTotal);
   const tableScaleX = bounds.width / Math.max(BOM_TABLE_WIDTH, 1);
   const tableScaleY = bounds.height / Math.max(baseHeight, 1);
 
-  const xToPt = (px: number) => (bounds.left + px * tableScaleX) * scaleX;
-  const yToPt = (py: number) => (bounds.top + py * tableScaleY) * scaleY;
-  const wToPt = (px: number) => px * tableScaleX * scaleX;
-  const hToPt = (px: number) => px * tableScaleY * scaleY;
+  const xToPt = (px: number) => pxToMm(bounds.left + px * tableScaleX);
+  const yToPt = (py: number) => pxToMm(bounds.top + py * tableScaleY);
+  const wToPt = (px: number) => pxToMm(px * tableScaleX);
+  const hToPt = (px: number) => pxToMm(px * tableScaleY);
 
-  const lineWidth = Math.max(0.35, Math.min(1.2, 0.75 * Math.min(tableScaleX, tableScaleY) * scaleX));
+  const lineWidth = Math.max(0.1, Math.min(0.45, pxToMm(0.75 * Math.min(tableScaleX, tableScaleY))));
   doc.setLineWidth(lineWidth);
   doc.setDrawColor(17, 24, 39);
 
@@ -509,7 +517,7 @@ function drawBomTableVector(
     doc.setFillColor(212, 212, 212);
     doc.rect(xToPt(xCursor), yToPt(0), wToPt(colWidth), hToPt(BOM_HEADER_HEIGHT), "FD");
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(Math.max(6, BOM_FONT_SIZE * tableScaleY * scaleY));
+    doc.setFontSize(Math.max(6, pxToPt(BOM_FONT_SIZE * tableScaleY)));
     doc.setTextColor(15, 23, 42);
     doc.text(header, xToPt(xCursor + 4), yToPt(3), { baseline: "top" });
     xCursor += colWidth;
@@ -525,7 +533,7 @@ function drawBomTableVector(
     });
 
     const fontStyle = row.isBold ? "bold" : "normal";
-    const fontSize = Math.max(6, BOM_FONT_SIZE * tableScaleY * scaleY);
+    const fontSize = Math.max(6, pxToPt(BOM_FONT_SIZE * tableScaleY));
     doc.setFont("helvetica", fontStyle);
     doc.setFontSize(fontSize);
     doc.setTextColor(17, 24, 39);
@@ -563,7 +571,7 @@ function drawBomTableVector(
     doc.rect(xToPt(leftWidth), yToPt(yCursor), wToPt(BOM_COL_WIDTHS[4]), hToPt(rowHeight), "S");
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(Math.max(6, BOM_FONT_SIZE * tableScaleY * scaleY));
+    doc.setFontSize(Math.max(6, pxToPt(BOM_FONT_SIZE * tableScaleY)));
     doc.setTextColor(15, 23, 42);
     doc.text("Total:", xToPt(leftWidth - 44), yToPt(yCursor + 3), { baseline: "top" });
     doc.text(String(grandTotal || ""), xToPt(leftWidth + 4), yToPt(yCursor + 2), {
@@ -637,14 +645,13 @@ function buildHeaderParts(options: RenderImageOptions) {
 function drawSelectableHeader(
   doc: jsPDF,
   options: RenderImageOptions,
-  scaleY: number,
   renderingMode: "fill" | "invisible" = "fill"
 ) {
   const parts = buildHeaderParts(options);
   if (parts.length === 0) return;
 
-  const fontSize = 16 * scaleY;
-  const y = 18 * scaleY;
+  const fontSize = pxToPt(16);
+  const y = pxToMm(18);
 
   let totalWidth = 0;
   parts.forEach((part) => {
@@ -653,7 +660,7 @@ function drawSelectableHeader(
     totalWidth += doc.getTextWidth(part.text);
   });
 
-  let cursorX = (PDF_PAGE_WIDTH - totalWidth) / 2;
+  let cursorX = (PDF_PAGE_WIDTH_MM - totalWidth) / 2;
   parts.forEach((part) => {
     const color = parseColor(part.fill);
     doc.setFont("helvetica", part.fontStyle);
@@ -675,20 +682,18 @@ export async function renderPageToImage(page: Page, options: RenderImageOptions 
 // Converting The PDF From Pages
 export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {}) {
   const doc = new jsPDF({
-    orientation: "portrait",
-    unit: "pt",
-    format: "a4",
+    orientation: "p",
+    unit: "mm",
+    format: [PDF_PAGE_WIDTH_MM, PDF_PAGE_HEIGHT_MM],
     compress: true
   });
 
   let pageCount = 0;
-  const scaleX = PDF_PAGE_WIDTH / A4_PX.width;
-  const scaleY = PDF_PAGE_HEIGHT / A4_PX.height;
   const bomRowChunks = chunkBomRows(options.tableData?.rows || []);
   let bomChunkCursor = 0;
   const coverLogoUrl = options.footerLogoUrl || DEFAULT_FOOTER_LOGO_URL;
   const coverImage = await buildPdfCoverImage(coverLogoUrl);
-  doc.addImage(coverImage, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
+  doc.addImage(coverImage, "JPEG", 0, 0, PDF_PAGE_WIDTH_MM, PDF_PAGE_HEIGHT_MM, undefined, "MEDIUM");
   pageCount += 1;
 
   for (let i = 0; i < pages.length; i += 1) {
@@ -764,8 +769,6 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
       });
     });
 
-    const headerGroup = canvas.getObjects().find((obj) => obj.data?.id === HEADER_ID);
-    if (headerGroup) headerGroup.set({ visible: false });
     if (canRenderBomAsVector) {
       const bomObjects = getBomObjectsForRasterHide(canvas);
       bomObjects.forEach((obj) => obj.set({ visible: false }));
@@ -782,12 +785,11 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     });
 
     if (pageCount > 0) doc.addPage();
-    doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "SLOW");
-    drawSelectableHeader(doc, pageOptions, scaleY, "fill");
+    doc.addImage(pageData, "JPEG", 0, 0, PDF_PAGE_WIDTH_MM, PDF_PAGE_HEIGHT_MM, undefined, "SLOW");
 
     textOverlays.forEach((item) => {
       doc.setFont(item.fontFamily, item.fontStyle);
-      doc.setFontSize(Math.max(6, item.fontSize * scaleY));
+      doc.setFontSize(Math.max(6, pxToPt(item.fontSize)));
       doc.setLineHeightFactor(item.lineHeight);
       doc.setTextColor(item.color.r, item.color.g, item.color.b);
 
@@ -804,8 +806,8 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
       };
 
       if (Math.abs(item.angle) > 0.01) textOptions.angle = -item.angle;
-      if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = item.maxWidth * scaleX;
-      doc.text(item.text, item.x * scaleX, item.y * scaleY, textOptions);
+      if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = pxToMm(item.maxWidth);
+      doc.text(item.text, pxToMm(item.x), pxToMm(item.y), textOptions);
     });
 
     if (canRenderBomAsVector && bomBounds) {
@@ -815,9 +817,7 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
         bomRows,
         options.tableData?.grandTotal || "",
         includeTotal,
-        bomBounds,
-        scaleX,
-        scaleY
+        bomBounds
       );
     }
 
