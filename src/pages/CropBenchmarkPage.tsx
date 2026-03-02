@@ -32,6 +32,10 @@ type BenchmarkRow = {
   error?: string;
 };
 
+const OUTPUT_MIME_TYPE = "image/jpeg";
+const OUTPUT_FORMAT_LABEL = "JPEG";
+const OUTPUT_QUALITY = 0.9;
+
 function formatMs(ms: number) {
   return `${ms.toFixed(2)} ms`;
 }
@@ -44,7 +48,7 @@ function getOutputFileName(url: string, index: number) {
   const raw = url.split("/").pop() || `image-${index + 1}`;
   const decoded = decodeURIComponent(raw);
   const clean = sanitizeFileName(decoded.replace(/\.[^.]+$/, ""));
-  return `${String(index + 1).padStart(3, "0")}-${clean || "image"}-cropped.png`;
+  return `${String(index + 1).padStart(3, "0")}-${clean || "image"}-cropped.jpg`;
 }
 
 async function saveBlobToDirectory(handle: BrowserDirectoryHandle, fileName: string, blob: Blob) {
@@ -132,8 +136,8 @@ export function CropBenchmarkPage() {
           whiteThreshold: 248,
           alphaThreshold: 8,
           paddingPx: 4,
-          mimeType: "image/png",
-          quality: 1
+          mimeType: OUTPUT_MIME_TYPE,
+          quality: OUTPUT_QUALITY
         });
         processedOnlyMs += result.elapsedMs;
 
@@ -179,13 +183,13 @@ export function CropBenchmarkPage() {
   return (
     <section className="crop-benchmark-page">
       <header className="crop-benchmark-header">
-        <h1>Pixel Crop Benchmark</h1>
+        <h1>Pixel-Based Crop Benchmark ({OUTPUT_FORMAT_LABEL})</h1>
         <div className="crop-benchmark-actions">
           <button className="run-benchmark-btn" onClick={pickOutputFolder} disabled={running}>
             Pick Output Folder
           </button>
           <button className="run-benchmark-btn" onClick={runBenchmark} disabled={running}>
-            {running ? "Running..." : "Run Benchmark"}
+            {running ? "Running..." : `Run ${OUTPUT_FORMAT_LABEL} Benchmark`}
           </button>
           <Link className="back-link-btn" to="/">
             Back To App
@@ -199,7 +203,9 @@ export function CropBenchmarkPage() {
         <div>Elapsed: {formatMs(elapsedMs)}</div>
         <div>Total time: {totalMs === null ? "-" : formatMs(totalMs)}</div>
         <div>Avg/image: {avgMs === null ? "-" : formatMs(avgMs)}</div>
-        <div>Output folder: {outputFolderName ?? "Not selected (will not save files)"}</div>
+        <div>
+          Output folder: {outputFolderName ?? `Not selected (will not save ${OUTPUT_FORMAT_LABEL} files)`}
+        </div>
       </div>
 
       <div className="crop-benchmark-table-wrap">
@@ -211,9 +217,9 @@ export function CropBenchmarkPage() {
               <th>Image URL</th>
               <th>Time</th>
               <th>Process</th>
-              <th>Encode</th>
+              <th>{OUTPUT_FORMAT_LABEL} Encode</th>
               <th>Source</th>
-              <th>Cropped</th>
+              <th>Cropped ({OUTPUT_FORMAT_LABEL})</th>
               <th>Blob Size</th>
               <th>Error</th>
             </tr>

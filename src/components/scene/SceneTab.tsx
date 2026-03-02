@@ -70,8 +70,8 @@ export function SceneTab({ isActive = true }: { isActive?: boolean }) {
       camera: cameraRef.current,
       target: closetRootRef.current,
       paddingPx: 2,
-      mimeType: "image/png",
-      quality: 1
+      mimeType: "image/jpeg",
+      quality: 0.9
     });
     const processMs = result.elapsedMs;
     stopTimer();
@@ -107,7 +107,7 @@ export function SceneTab({ isActive = true }: { isActive?: boolean }) {
       >
         {isCapturing
           ? `Processing: ${runningMs.toFixed(2)} ms`
-          : `Last: ${lastProcessMs.toFixed(2)} + ${lastEncodeMs.toFixed(2)} = ${(lastProcessMs + lastEncodeMs).toFixed(2)} ms`}{" "}
+          : `Last capture - Crop/render: ${lastProcessMs.toFixed(2)} ms + JPEG encode: ${lastEncodeMs.toFixed(2)} ms = Total: ${(lastProcessMs + lastEncodeMs).toFixed(2)} ms`}{" "}
         | Total: {totalProcessMs.toFixed(2)} ms
       </div>
       <Canvas

@@ -58,11 +58,11 @@ function setUserLockedState(obj: fabric.Object, locked: boolean) {
   obj.set({
     selectable: true,
     evented: true,
-    hasControls: isBomEntity ? false : !locked,
+    hasControls: !locked,
     lockMovementX: locked,
     lockMovementY: locked,
-    lockScalingX: isBomEntity ? true : locked,
-    lockScalingY: isBomEntity ? true : locked,
+    lockScalingX: locked,
+    lockScalingY: locked,
     lockRotation: isBomEntity ? true : locked,
     lockSkewingX: locked,
     lockSkewingY: locked,
@@ -362,13 +362,13 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     obj.set({
       selectable: true,
       evented: true,
-      hasControls: false,
+      hasControls: !locked,
       hasBorders: true,
       objectCaching: false,
       lockMovementX: locked,
       lockMovementY: locked,
-      lockScalingX: true,
-      lockScalingY: true,
+      lockScalingX: locked,
+      lockScalingY: locked,
       lockRotation: true,
       lockSkewingX: true,
       lockSkewingY: true,
@@ -449,13 +449,6 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   const ensureBomTableGroup = () => {
     const existingGroup = canvas.getObjects().find((obj) => obj.data?.id === BOM_TABLE_GROUP_ID);
     if (existingGroup) {
-      const hadTransform =
-        Math.abs((existingGroup.scaleX || 1) - 1) > 0.001 ||
-        Math.abs((existingGroup.scaleY || 1) - 1) > 0.001 ||
-        Math.abs(existingGroup.angle || 0) > 0.01;
-      if (hadTransform) {
-        normalizeBomObjectTransform(existingGroup);
-      }
       applyBomGroupBehavior(existingGroup);
       fitAndClampBomGroup(existingGroup);
       if (!isBomUserPlaced(existingGroup)) {
@@ -1936,7 +1929,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       removeActiveObjects();
     },
     async getPageImage() {
-      return canvas.toDataURL({ multiplier: 2, format: "png" });
+      return canvas.toDataURL({ multiplier: 2, format: "jpeg", quality: 0.86 });
     }
   };
 

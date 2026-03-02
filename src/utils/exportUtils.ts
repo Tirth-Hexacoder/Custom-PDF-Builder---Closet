@@ -1,7 +1,16 @@
 import { jsPDF } from "jspdf";
 import { fabric } from "fabric";
 import { A4_PX } from "@closet/core";
-import type { ExportOptions, Page, RenderImageOptions, SceneImageInput, SceneImageNote } from "../types";
+import type { ExportOptions, Page, RenderImageOptions, SceneImageInput, SceneImageNote, TableRow } from "../types";
+import {
+  BOM_COL_WIDTHS,
+  BOM_FONT_SIZE,
+  BOM_HEADER_HEIGHT,
+  BOM_TABLE_WIDTH,
+  getBomRowHeight,
+  chunkBomRows,
+  wrapBomTextByChars
+} from "./bomTableUtils";
 import { applyPageDecorations, DEFAULT_FOOTER_LOGO_URL, HEADER_ID } from "./pageDecorUtils";
 
 const PDF_PAGE_WIDTH = 595;
@@ -28,9 +37,9 @@ function normalizeDimmedOpacityForExport(canvas: fabric.StaticCanvas) {
 
 // Generates Raster Image Using Given Options
 function toDataUrl(canvas: fabric.StaticCanvas, options: RenderImageOptions) {
-  const format = options.format ?? "png";
+  const format = options.format ?? "jpeg";
   const multiplier = options.multiplier ?? 2;
-  const quality = options.quality ?? 0.9;
+  const quality = options.quality ?? 0.86;
   return canvas.toDataURL({ format, multiplier, quality });
 }
 
@@ -406,6 +415,164 @@ function getTextAngle(obj: fabric.Object) {
   return obj.angle || 0;
 }
 
+function isBomId(id: unknown) {
+  return typeof id === "string" && id.startsWith("bom-");
+}
+
+function hasBomJsonObject(obj: unknown): boolean {
+  if (!obj || typeof obj !== "object") return false;
+  const candidate = obj as {
+    data?: { id?: unknown };
+    objects?: unknown[];
+  };
+  if (isBomId(candidate.data?.id)) return true;
+  if (!Array.isArray(candidate.objects)) return false;
+  return candidate.objects.some((child) => hasBomJsonObject(child));
+}
+
+function isBomPage(page: Page) {
+  const json = page.fabricJSON as { objects?: unknown[] } | null;
+  if (!json || !Array.isArray(json.objects)) return false;
+  return json.objects.some((obj) => hasBomJsonObject(obj));
+}
+
+function getBomBounds(canvas: fabric.StaticCanvas) {
+  const group = canvas.getObjects().find((obj) => obj.data?.id === "bom-table-group");
+  if (group) {
+    const rect = group.getBoundingRect(true, true);
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  }
+
+  const bomParts = flattenObjects(canvas.getObjects()).filter((obj) => isBomId(obj.data?.id));
+  if (bomParts.length === 0) return null;
+
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  bomParts.forEach((obj) => {
+    const rect = obj.getBoundingRect(true, true);
+    left = Math.min(left, rect.left);
+    top = Math.min(top, rect.top);
+    right = Math.max(right, rect.left + rect.width);
+    bottom = Math.max(bottom, rect.top + rect.height);
+  });
+
+  if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)) {
+    return null;
+  }
+
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+function getBomObjectsForRasterHide(canvas: fabric.StaticCanvas) {
+  const group = canvas.getObjects().find((obj) => obj.data?.id === "bom-table-group");
+  if (group) return [group];
+  return canvas.getObjects().filter((obj) => isBomId(obj.data?.id));
+}
+
+function getBomTableBaseHeight(rows: TableRow[], includeTotal: boolean) {
+  let height = BOM_HEADER_HEIGHT;
+  rows.forEach((row) => {
+    height += getBomRowHeight(row);
+  });
+  if (includeTotal) height += 16;
+  return height;
+}
+
+function drawBomTableVector(
+  doc: jsPDF,
+  rows: TableRow[],
+  grandTotal: string,
+  includeTotal: boolean,
+  bounds: { left: number; top: number; width: number; height: number },
+  scaleX: number,
+  scaleY: number
+) {
+  const baseHeight = getBomTableBaseHeight(rows, includeTotal);
+  const tableScaleX = bounds.width / Math.max(BOM_TABLE_WIDTH, 1);
+  const tableScaleY = bounds.height / Math.max(baseHeight, 1);
+
+  const xToPt = (px: number) => (bounds.left + px * tableScaleX) * scaleX;
+  const yToPt = (py: number) => (bounds.top + py * tableScaleY) * scaleY;
+  const wToPt = (px: number) => px * tableScaleX * scaleX;
+  const hToPt = (px: number) => px * tableScaleY * scaleY;
+
+  const lineWidth = Math.max(0.35, Math.min(1.2, 0.75 * Math.min(tableScaleX, tableScaleY) * scaleX));
+  doc.setLineWidth(lineWidth);
+  doc.setDrawColor(17, 24, 39);
+
+  const headerLabels = ["Part", "Description", "Unit Price", "Qty", "Total"];
+  let xCursor = 0;
+  headerLabels.forEach((header, index) => {
+    const colWidth = BOM_COL_WIDTHS[index];
+    doc.setFillColor(212, 212, 212);
+    doc.rect(xToPt(xCursor), yToPt(0), wToPt(colWidth), hToPt(BOM_HEADER_HEIGHT), "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(Math.max(6, BOM_FONT_SIZE * tableScaleY * scaleY));
+    doc.setTextColor(15, 23, 42);
+    doc.text(header, xToPt(xCursor + 4), yToPt(3), { baseline: "top" });
+    xCursor += colWidth;
+  });
+
+  let yCursor = BOM_HEADER_HEIGHT;
+  rows.forEach((row) => {
+    const rowHeight = getBomRowHeight(row);
+    let colLeft = 0;
+    BOM_COL_WIDTHS.forEach((width) => {
+      doc.rect(xToPt(colLeft), yToPt(yCursor), wToPt(width), hToPt(rowHeight), "S");
+      colLeft += width;
+    });
+
+    const fontStyle = row.isBold ? "bold" : "normal";
+    const fontSize = Math.max(6, BOM_FONT_SIZE * tableScaleY * scaleY);
+    doc.setFont("helvetica", fontStyle);
+    doc.setFontSize(fontSize);
+    doc.setTextColor(17, 24, 39);
+
+    const descLines = wrapBomTextByChars(row.description || "", 42);
+    doc.text(String(row.part || ""), xToPt(4), yToPt(yCursor + 2), {
+      baseline: "top",
+      maxWidth: wToPt(BOM_COL_WIDTHS[0] - 8)
+    });
+    doc.text(descLines, xToPt(BOM_COL_WIDTHS[0] + 4), yToPt(yCursor + 2), {
+      baseline: "top",
+      maxWidth: wToPt(BOM_COL_WIDTHS[1] - 8)
+    });
+    doc.text(String(row.unitPrice || ""), xToPt(BOM_COL_WIDTHS[0] + BOM_COL_WIDTHS[1] + 4), yToPt(yCursor + 2), {
+      baseline: "top",
+      maxWidth: wToPt(BOM_COL_WIDTHS[2] - 8)
+    });
+    doc.text(String(row.qty ?? ""), xToPt(BOM_COL_WIDTHS[0] + BOM_COL_WIDTHS[1] + BOM_COL_WIDTHS[2] + (BOM_COL_WIDTHS[3] / 2)), yToPt(yCursor + 2), {
+      baseline: "top",
+      align: "center",
+      maxWidth: wToPt(BOM_COL_WIDTHS[3] - 8)
+    });
+    doc.text(String(row.total || ""), xToPt(BOM_COL_WIDTHS[0] + BOM_COL_WIDTHS[1] + BOM_COL_WIDTHS[2] + BOM_COL_WIDTHS[3] + 4), yToPt(yCursor + 2), {
+      baseline: "top",
+      maxWidth: wToPt(BOM_COL_WIDTHS[4] - 8)
+    });
+
+    yCursor += rowHeight;
+  });
+
+  if (includeTotal) {
+    const leftWidth = BOM_COL_WIDTHS[0] + BOM_COL_WIDTHS[1] + BOM_COL_WIDTHS[2] + BOM_COL_WIDTHS[3];
+    const rowHeight = 16;
+    doc.rect(xToPt(0), yToPt(yCursor), wToPt(leftWidth), hToPt(rowHeight), "S");
+    doc.rect(xToPt(leftWidth), yToPt(yCursor), wToPt(BOM_COL_WIDTHS[4]), hToPt(rowHeight), "S");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(Math.max(6, BOM_FONT_SIZE * tableScaleY * scaleY));
+    doc.setTextColor(15, 23, 42);
+    doc.text("Total:", xToPt(leftWidth - 44), yToPt(yCursor + 3), { baseline: "top" });
+    doc.text(String(grandTotal || ""), xToPt(leftWidth + 4), yToPt(yCursor + 2), {
+      baseline: "top",
+      maxWidth: wToPt(BOM_COL_WIDTHS[4] - 8)
+    });
+  }
+}
+
 function isFiniteNumber(value: number) {
   return Number.isFinite(value) && !Number.isNaN(value);
 }
@@ -517,6 +684,8 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
   let pageCount = 0;
   const scaleX = PDF_PAGE_WIDTH / A4_PX.width;
   const scaleY = PDF_PAGE_HEIGHT / A4_PX.height;
+  const bomRowChunks = chunkBomRows(options.tableData?.rows || []);
+  let bomChunkCursor = 0;
   const coverLogoUrl = options.footerLogoUrl || DEFAULT_FOOTER_LOGO_URL;
   const coverImage = await buildPdfCoverImage(coverLogoUrl);
   doc.addImage(coverImage, "JPEG", 0, 0, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT, undefined, "MEDIUM");
@@ -530,10 +699,25 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     };
 
     const canvas = await buildCanvasForPage(pages[i], pageOptions);
+    const hasBom = isBomPage(pages[i]);
+    const bomChunkIndex = hasBom ? bomChunkCursor : -1;
+    if (hasBom) bomChunkCursor += 1;
+
+    const bomRows = bomChunkIndex >= 0 && bomChunkIndex < bomRowChunks.length
+      ? bomRowChunks[bomChunkIndex]
+      : [];
+    const hasBomData = hasBom && !!options.tableData;
+    const bomBounds = hasBomData ? getBomBounds(canvas) : null;
+    const canRenderBomAsVector = hasBomData && !!bomBounds;
 
     const textObjects = flattenObjects(canvas.getObjects())
       .filter((obj) => isFabricTextObject(obj))
       .filter((obj) => !obj.group)
+      .filter((obj) => {
+        const ownId = obj.data?.id;
+        if (isBomId(ownId)) return !canRenderBomAsVector;
+        return true;
+      })
       .map((obj) => obj as fabric.Text | fabric.IText | fabric.Textbox);
 
     const textOverlays: Array<{
@@ -582,6 +766,10 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
 
     const headerGroup = canvas.getObjects().find((obj) => obj.data?.id === HEADER_ID);
     if (headerGroup) headerGroup.set({ visible: false });
+    if (canRenderBomAsVector) {
+      const bomObjects = getBomObjectsForRasterHide(canvas);
+      bomObjects.forEach((obj) => obj.set({ visible: false }));
+    }
     hideForRaster.forEach((obj) => obj.set({ visible: false }));
     setWhiteBackground(canvas);
     canvas.renderAll();
@@ -619,6 +807,19 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
       if (item.maxWidth && item.maxWidth > 0) textOptions.maxWidth = item.maxWidth * scaleX;
       doc.text(item.text, item.x * scaleX, item.y * scaleY, textOptions);
     });
+
+    if (canRenderBomAsVector && bomBounds) {
+      const includeTotal = bomChunkIndex === bomRowChunks.length - 1;
+      drawBomTableVector(
+        doc,
+        bomRows,
+        options.tableData?.grandTotal || "",
+        includeTotal,
+        bomBounds,
+        scaleX,
+        scaleY
+      );
+    }
 
     canvas.dispose();
     pageCount += 1;

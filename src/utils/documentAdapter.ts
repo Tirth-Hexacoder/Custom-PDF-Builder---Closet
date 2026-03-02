@@ -42,7 +42,8 @@ export function buildExportOptionsFromSnapshot(snapshot: ProposalDocumentSnapsho
     headerProjectName: snapshot.meta.projectName || "",
     headerCustomerName: snapshot.meta.customerName || "",
     designerEmail: snapshot.meta.designerEmail || "",
-    designerMobile: snapshot.meta.mobileNo || ""
+    designerMobile: snapshot.meta.mobileNo || "",
+    tableData: clone(snapshot.tableData)
   };
 }
 

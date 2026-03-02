@@ -27,6 +27,7 @@ export type ScreenRect = {
 const tmpBox = new Box3();
 const tmpCorner = new Vector3();
 let sharedCropCanvas: HTMLCanvasElement | null = null;
+let sharedEncodeCanvas: HTMLCanvasElement | null = null;
 
 function clamp(value: number, min: number, max: number) {
   if (value < min) return min;
@@ -34,8 +35,33 @@ function clamp(value: number, min: number, max: number) {
   return value;
 }
 
+function isJpegMimeType(mimeType: string) {
+  const normalized = mimeType.toLowerCase();
+  return normalized === "image/jpeg" || normalized === "image/jpg";
+}
+
+function encodeCanvasToDataUrl(canvas: HTMLCanvasElement, mimeType: string, quality: number) {
+  if (!isJpegMimeType(mimeType)) {
+    return canvas.toDataURL(mimeType, quality);
+  }
+
+  const encodeCanvas = sharedEncodeCanvas ?? document.createElement("canvas");
+  sharedEncodeCanvas = encodeCanvas;
+  encodeCanvas.width = canvas.width;
+  encodeCanvas.height = canvas.height;
+
+  const ctx = encodeCanvas.getContext("2d", { willReadFrequently: false });
+  if (!ctx) return canvas.toDataURL(mimeType, quality);
+
+  ctx.clearRect(0, 0, encodeCanvas.width, encodeCanvas.height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, encodeCanvas.width, encodeCanvas.height);
+  ctx.drawImage(canvas, 0, 0);
+  return encodeCanvas.toDataURL(mimeType, quality);
+}
+
 function getFallbackDataUrl(sourceCanvas: HTMLCanvasElement, mimeType: string, quality: number) {
-  return sourceCanvas.toDataURL(mimeType, quality);
+  return encodeCanvasToDataUrl(sourceCanvas, mimeType, quality);
 }
 
 export function getProjectedObjectScreenRect(
@@ -106,8 +132,8 @@ export function captureCanvasWithProjectedObjectCrop({
   camera,
   target,
   paddingPx = 8,
-  mimeType = "image/png",
-  quality = 1
+  mimeType = "image/jpeg",
+  quality = 0.9
 }: ProjectedObjectCropOptions): string {
   return captureCanvasWithProjectedObjectCropTimed({
     sourceCanvas,
@@ -124,8 +150,8 @@ export function captureCanvasWithProjectedObjectCropTimed({
   camera,
   target,
   paddingPx = 8,
-  mimeType = "image/png",
-  quality = 1
+  mimeType = "image/jpeg",
+  quality = 0.9
 }: ProjectedObjectCropOptions): ProjectedObjectCropTimingResult {
   if (sourceCanvas.width <= 0 || sourceCanvas.height <= 0) {
     return { image: "", processingMs: 0, encodeMs: 0, elapsedMs: 0 };
@@ -167,7 +193,7 @@ export function captureCanvasWithProjectedObjectCropTimed({
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(sourceCanvas, x, y, width, height, 0, 0, width, height);
   const beforeEncode = performance.now();
-  const image = cropCanvas.toDataURL(mimeType, quality);
+  const image = encodeCanvasToDataUrl(cropCanvas, mimeType, quality);
   const encodeMs = performance.now() - beforeEncode;
   const processingMs = beforeEncode - start;
   return { image, processingMs, encodeMs, elapsedMs: processingMs + encodeMs };

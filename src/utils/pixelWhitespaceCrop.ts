@@ -33,8 +33,8 @@ const DEFAULT_OPTIONS: Required<PixelWhitespaceCropOptions> = {
   whiteThreshold: 248,
   alphaThreshold: 8,
   paddingPx: 0,
-  mimeType: "image/png",
-  quality: 1,
+  mimeType: "image/jpeg",
+  quality: 0.9,
   output: "blob"
 };
 
