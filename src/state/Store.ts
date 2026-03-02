@@ -119,6 +119,13 @@ export class Store {
     return true;
   }
 
+  importSnapshot(snapshot: ProposalDocumentSnapshot) {
+    const loaded = this.loadSnapshot(snapshot);
+    if (!loaded) return false;
+    this.persistSessionSnapshot();
+    return true;
+  }
+
   // Setup Default Pages as Per Number of Images
   setupDefaultPages() {
     this.imageURL = this.getOrderedDefaultImages();

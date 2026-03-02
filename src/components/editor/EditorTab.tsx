@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { observer } from "mobx-react-lite";
 import { A4_PX } from "@closet/core";
+import toast from "react-hot-toast";
 import type { FabricCanvasHandle, Page, PendingCapture } from "../../types";
 import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
 import { renderPagePreview } from "../../utils/pagePreviewUtils";
+import { parseSnapshotJsonText } from "../../utils/documentAdapter";
 
 const IMAGE_DRAG_MIME = "application/x-pdf-builder-image-url";
 const MIN_ZOOM_PERCENT = 30;
@@ -67,6 +70,7 @@ export const EditorTab = observer(function EditorTab() {
   const previewProcessingRef = useRef(false);
   const previewSourceRef = useRef<Record<string, { fabricJSON: Page["fabricJSON"]; defaultImageKey?: string }>>({});
   const pendingTrayDropsRef = useRef<Array<{ pageId: string; url: string }>>([]);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const firstPageRenderRef = useRef(true);
 
@@ -141,6 +145,41 @@ export const EditorTab = observer(function EditorTab() {
     const page = store.pages[target - 1];
     if (page) store.setActivePageId(page.id);
     setPageInput(String(target));
+  };
+
+  const triggerImportPicker = () => {
+    importInputRef.current?.click();
+  };
+
+  const onImportJsonFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    const content = await file.text();
+    const { snapshot, error } = parseSnapshotJsonText(content);
+    if (!snapshot) {
+      toast.error(error || "Failed to parse snapshot JSON.");
+      return;
+    }
+
+    const current = store.toDocumentSnapshot();
+    const isDifferentProject =
+      (snapshot.meta.projectId || "") !== (current.meta.projectId || "") ||
+      (snapshot.meta.projectName || "") !== (current.meta.projectName || "") ||
+      (snapshot.meta.customerName || "") !== (current.meta.customerName || "");
+
+    if (isDifferentProject) {
+      toast.error("Imported file appears to be from a different project.");
+    }
+
+    const loaded = store.importSnapshot(snapshot);
+    if (!loaded) {
+      toast.error("Unable to load this JSON snapshot.");
+      return;
+    }
+
+    toast.success("JSON snapshot imported successfully.");
   };
 
   // Adding Image on Canvas (Page) and Processed Capture Array
@@ -511,6 +550,20 @@ export const EditorTab = observer(function EditorTab() {
             />
             <span className="opacity-value">{Math.round(selectedOpacity * 100)}%</span>
           </div>
+
+          <div className="toolbar-divider"></div>
+
+          <button className="tool-btn" onClick={triggerImportPicker} title="Import JSON Snapshot">
+            <i className="fa-solid fa-file-arrow-up"></i>
+            <span>Import JSON</span>
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: "none" }}
+            onChange={onImportJsonFile}
+          />
 
           <div className="toolbar-divider"></div>
 
