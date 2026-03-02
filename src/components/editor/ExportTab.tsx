@@ -29,10 +29,7 @@ export const ExportTab = observer(function ExportTab() {
         <p className="panel-note">Finalize your proposal by exporting it to the desired format.</p>
         <div className="controls-row" style={{ marginTop: 24 }}>
           <button className="btn primary" style={{ padding: '12px 24px' }} onClick={exportPDF}>
-            <span style={{ fontSize: '1.1rem' }}>Download Professional PDF</span>
-          </button>
-          <button className="btn secondary" style={{ padding: '12px 24px' }} onClick={saveSnapshot}>
-            <span style={{ fontSize: '1.1rem' }}>Save</span>
+            <span style={{ fontSize: '1.1rem' }}>Download PDF</span>
           </button>
         </div>
       </div>
