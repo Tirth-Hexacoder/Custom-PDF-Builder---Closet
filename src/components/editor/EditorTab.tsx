@@ -170,6 +170,12 @@ export const EditorTab = observer(function EditorTab() {
   }, [isCropMode]);
 
   useEffect(() => {
+    if (!hasSelection && isCropMode) {
+      setIsCropMode(false);
+    }
+  }, [hasSelection, isCropMode]);
+
+  useEffect(() => {
     if (!isTextInsertMode) return;
     const onMouseDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
@@ -280,6 +286,7 @@ export const EditorTab = observer(function EditorTab() {
 
           <button
             className={`tool-btn ${isCropMode ? "active" : ""}`}
+            disabled={!hasSelection}
             onClick={() => setIsCropMode((prev) => !prev)}
             title={isCropMode ? "Disable Crop Mode" : "Enable Crop Mode"}
           >
