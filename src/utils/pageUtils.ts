@@ -1002,8 +1002,12 @@ export function createPageCanvas(options: CreateCanvasOptions) {
           }
           const sourceWidth = img.width || 1;
           const sourceHeight = img.height || 1;
-          const scale = Math.min(cell.width / sourceWidth, cell.height / sourceHeight, 1);
-          img.scale(scale);
+          console.log("This is cell image url" + cell.image.url)
+          // Never upscale or crop — only shrink if the image exceeds the full canvas
+          const canvasWidth = canvas.getWidth();
+          const canvasHeight = canvas.getHeight();
+          const scale = Math.min(1, canvasWidth / sourceWidth, canvasHeight / sourceHeight);
+          // img.scale(scale);
           img.set({
             left: cell.left + (cell.width - img.getScaledWidth()) / 2,
             top: cell.top + (cell.height - img.getScaledHeight()) / 2,
@@ -1066,6 +1070,28 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       canvas.loadFromJSON(nextPage.fabricJSON, () => {
         ensureWhiteBackground();
         applyImageControlsToCanvas();
+
+        // After JSON load, images have real natural dimensions.
+        // Re-scale any image that has a stored slotWidth/slotHeight to fit proportionally.
+        canvas.getObjects().forEach((obj) => {
+          if (obj.type !== "image") return;
+          const img = obj as fabric.Image;
+          const slotW: number | undefined = img.data?.slotWidth;
+          const slotH: number | undefined = img.data?.slotHeight;
+          if (!slotW || !slotH) return;
+          const naturalW = img.width || 1;
+          const naturalH = img.height || 1;
+          const fitScale = Math.min(slotW / naturalW, slotH / naturalH, 1);
+          img.set({
+            scaleX: fitScale,
+            scaleY: fitScale,
+            // Re-center inside slot
+            left: (img.left ?? 0) + (slotW - naturalW * fitScale) / 2,
+            top:  (img.top  ?? 0) + (slotH - naturalH * fitScale) / 2
+          });
+          img.setCoords();
+        });
+
         ensureBomTableGroup();
         syncDefaultImageMetadata(defaultImages);
         isRestoring = false;

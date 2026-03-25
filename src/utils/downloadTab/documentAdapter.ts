@@ -182,12 +182,13 @@ function fabricJsonFromReviewItems(items: ReviewItem[], imagesById: Map<string, 
     if (item.type === "image") {
       const image = imagesById.get(item.imageId);
       const src = (image?.url || image?.blobUrl || image?.imageUrl || "");
+      // We do NOT force width/height on the fabric image object.
+      // Instead we pass the slot dimensions as data so the canvas
+      // can scale the image proportionally once it knows the real source size.
       objects.push({
         type: "image",
         left: item.position.x,
         top: item.position.y,
-        width: item.size.width,
-        height: item.size.height,
         scaleX: item.scale?.x ?? 1,
         scaleY: item.scale?.y ?? 1,
         angle: item.rotation ?? 0,
@@ -201,7 +202,10 @@ function fabricJsonFromReviewItems(items: ReviewItem[], imagesById: Map<string, 
           reviewItemId: item.itemId,
           userLocked: !!item.locked,
           cropSourceWidth: item.crop?.sourceWidth,
-          cropSourceHeight: item.crop?.sourceHeight
+          cropSourceHeight: item.crop?.sourceHeight,
+          // Store slot size so the canvas can auto-scale to fit after load
+          slotWidth: item.size.width,
+          slotHeight: item.size.height
         },
         selectable: true,
         evented: true,

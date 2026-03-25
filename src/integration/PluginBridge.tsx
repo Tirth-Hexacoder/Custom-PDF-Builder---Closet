@@ -49,14 +49,26 @@ export function PluginBridge() {
           const localSnapshot = await loadLatestSnapshotFromIdb();
 
           if (localSnapshot && localSnapshot.images.length > 0) {
-              console.log("[ReviewPlugin] Found unsaved local IDB payload, bypassing raw DB load.");
-              store.importSnapshot(localSnapshot);
+            console.log("[ReviewPlugin] Found unsaved local IDB payload, bypassing raw DB load.");
+            store.importSnapshot(localSnapshot);
           } else if (dbData) {
-              if (dbData.hasSavedJson) {
-                store.importSnapshot(dbData.jsonPayload);
-              } else {
-                store.importSnapshot({ images: dbData.images, pages: [] });
-              }
+            if (dbData.hasSavedJson) {
+              const imgs = dbData.jsonPayload?.images || [];
+              console.group("[ReviewPlugin] DB Images (Saved JSON)");
+              imgs.forEach((img: any, i: number) => {
+                console.log(`[${i}] url: ${img.url || img.blobUrl || img.imageUrl || "(none)"}`);
+              });
+              console.groupEnd();
+              store.importSnapshot(dbData.jsonPayload);
+            } else {
+              const imgs: any[] = dbData.images || [];
+              console.group("[ReviewPlugin] DB Images (Raw)");
+              imgs.forEach((img: any, i: number) => {
+                console.log(`[${i}] url: ${img.url || img.blobUrl || img.imageUrl || "(none)"}`);
+              });
+              console.groupEnd();
+              store.importSnapshot({ images: imgs, pages: [] });
+            }
           }
 
           await clearLatestSnapshotFromIdb(); // clear stale Local IDB
@@ -84,7 +96,7 @@ export function PluginBridge() {
 
     window.addEventListener("focus", handleFocusOrVisible);
     document.addEventListener("visibilitychange", handleFocusOrVisible);
-    
+
     // Initial load
     loadData();
 
