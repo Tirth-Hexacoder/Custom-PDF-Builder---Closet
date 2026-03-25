@@ -743,5 +743,6 @@ export async function exportPagesAsPdf(pages: Page[], options: ExportOptions = {
     pageCount += 1;
   }
 
-  doc.save(`proposal-${Date.now()}.pdf`);
+  doc.save(`review-${Date.now()}.pdf`);
+  return doc.output("blob");
 }

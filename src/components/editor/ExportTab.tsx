@@ -1,16 +1,37 @@
 import { observer } from "mobx-react-lite";
 import toast from "react-hot-toast";
 import { useStore } from "../../state/Root";
-import { downloadSnapshotJson, exportSnapshotAsPdf } from "../../utils/downloadTab/documentAdapter";
+import { downloadSnapshotJson, exportStoreAsPdf } from "../../utils/downloadTab/documentAdapter";
 
 export const ExportTab = observer(function ExportTab() {
   const store = useStore();
 
   // Export PDF
   const exportPDF = async () => {
-    const snapshot = store.toDocumentSnapshot();
-    downloadSnapshotJson(snapshot);
-    await exportSnapshotAsPdf(snapshot);
+    try {
+      const snapshot = store.toDocumentSnapshot();
+      downloadSnapshotJson(snapshot);
+      const pdfBlob = await exportStoreAsPdf(store);
+
+      const params = new URLSearchParams(window.location.search);
+      const projectId = params.get("projectId");
+      const closetId = params.get("closetId");
+      
+      if (projectId && closetId && pdfBlob) {
+          const formData = new FormData();
+          formData.append("jsonPayload", JSON.stringify(snapshot));
+          formData.append("pdf", pdfBlob, "export.pdf");
+          
+          const res = await fetch(`http://localhost:4000/api/project/${projectId}/closet/${closetId}/export`, {
+             method: "POST",
+             body: formData
+          });
+          if (res.ok) toast.success("PDF synced to server successfully!");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to export PDF.");
+    }
   };
 
   // Save current working snapshot into session storage.

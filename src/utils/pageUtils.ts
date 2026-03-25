@@ -526,6 +526,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       const raw = Number(input.value);
       if (!Number.isFinite(raw)) return;
       const active = canvas.getActiveObject();
+      if (!active) return;
       if (!canShowRotationControls(active)) return;
       const normalized = ((raw % 360) + 360) % 360;
       const center = active.getCenterPoint();
@@ -801,6 +802,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         fontFamily: note.fontType || "Georgia",
         editable: true,
         data: {
+          reviewItemId: crypto.randomUUID(),
           id: `image-note-${note.id}`,
           source: "default-image-note",
           noteId: note.id,
@@ -1007,6 +1009,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
             top: cell.top + (cell.height - img.getScaledHeight()) / 2,
             data: {
               ...(img.data || {}),
+              reviewItemId: typeof (img.data as any)?.reviewItemId === "string" ? (img.data as any).reviewItemId : crypto.randomUUID(),
               id: "default-page-image",
               source: "default-image",
               defaultImageUrl: cell.image.url
@@ -1039,6 +1042,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       imageObject.set({
         data: {
           ...(imageObject.data || {}),
+          reviewItemId: typeof (imageObject.data as any)?.reviewItemId === "string" ? (imageObject.data as any).reviewItemId : crypto.randomUUID(),
           id: "default-page-image",
           source: "default-image",
           defaultImageUrl: defaultImage.url
@@ -1667,7 +1671,10 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         fontWeight: initialStyle?.bold ? "bold" : "normal",
         fontStyle: initialStyle?.italic ? "italic" : "normal",
         underline: !!initialStyle?.underline,
-        textAlign: initialStyle?.align || "left"
+        textAlign: initialStyle?.align || "left",
+        data: {
+          reviewItemId: crypto.randomUUID()
+        }
       });
       canvas.add(text);
       canvas.setActiveObject(text);
@@ -1761,7 +1768,14 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         (img) => {
           if (!img) return;
           img.scaleToWidth(300);
-          img.set({ left: 64, top: 360 });
+          img.set({
+            left: 64,
+            top: 360,
+            data: {
+              ...(img.data || {}),
+              reviewItemId: crypto.randomUUID()
+            }
+          });
           applyImageControls(img);
           canvas.add(img);
           canvas.setActiveObject(img);

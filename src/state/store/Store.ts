@@ -1,27 +1,15 @@
 import { makeAutoObservable } from "mobx";
-import userData from "../../data/userData.json";
-import imageList from "../../data/imageList.json";
-import tableData from "../../data/table.json";
 import type {
   FabricJSON,
   Page,
-  PendingCapture,
-  ProjectImage,
   ProposalDocumentSnapshot,
-  SceneImageInput,
-  SceneImageType,
-  TableData,
-  UserRecord
+  ReviewImage,
+  ReviewItem,
+  ReviewImageMetadata
 } from "../../types";
-import { createBomPages } from "../../utils/bomTableUtils";
-import { buildDocumentSnapshot } from "../../utils/downloadTab/documentAdapter";
+import { buildDocumentSnapshot, rebuildPagesFromSnapshot } from "../../utils/downloadTab/documentAdapter";
 
-const SESSION_DOC_KEY = "pdf_builder_document_snapshot_v1";
-const DESIGNER_IMAGE_ORDER: SceneImageType[] = ["2D Default", "2D", "Stretched", "Isometric", "3D", "Wall"];
-const NON_DESIGNER_IMAGE_ORDER: SceneImageType[] = ["Stretched", "Isometric", "3D", "2D Default", "2D", "Wall"];
-const IMAGE_TYPE_CYCLE: SceneImageType[] = ["2D Default", "2D", "Stretched", "Isometric", "3D", "Wall"];
-const DESIGNER_GRID_MAX_PER_PAGE = 6;
-const WALL_GRID_MAX_PER_PAGE = 4;
+const SESSION_DOC_KEY = "review_plugin_document_snapshot_v1";
 
 export class Store {
   projectId = "";
@@ -31,13 +19,10 @@ export class Store {
   date = "";
   mobileNo = "";
   userType: "Designer" | "Retailer" | "retail" | "retailDesigner" = "Designer";
-  images: ProjectImage[] = [];
-  imageURL: SceneImageInput[] = [];
+  images: ReviewImage[] = [];
 
   pages: Page[] = [];
   activePageId: string | null = null;
-  pendingCaptures: PendingCapture[] = [];
-  tableData: TableData = { rows: [], grandTotal: "" };
 
   // Boot order prefers provided document, then session restore, then default JSON bootstrap.
   // Load Initial Setup
@@ -50,10 +35,13 @@ export class Store {
     if (sessionDocument && this.loadSnapshot(sessionDocument)) {
       return;
     }
-    this.loadUser();
-    this.setupTableData();
-    this.setupDefaultPages();
-    this.activePageId = this.pages[0].id;
+    const firstPage: Page = {
+      id: crypto.randomUUID(),
+      name: "Page 1",
+      fabricJSON: null
+    };
+    this.pages = [firstPage];
+    this.activePageId = firstPage.id;
   }
 
   private readSessionSnapshot() {
@@ -83,47 +71,108 @@ export class Store {
   }
 
   loadSnapshot(snapshot: ProposalDocumentSnapshot) {
-    if (!snapshot || snapshot.schemaVersion !== 1 || !Array.isArray(snapshot.pages) || snapshot.pages.length === 0) {
+    if (!snapshot || !Array.isArray(snapshot.pages) || !Array.isArray(snapshot.images)) {
       return false;
     }
-    this.projectId = snapshot.meta?.projectId || "";
-    this.projectName = snapshot.meta?.projectName || "";
-    this.customerName = snapshot.meta?.customerName || "";
-    this.designerEmail = snapshot.meta?.designerEmail || "";
-    this.date = snapshot.meta?.date || "";
-    this.mobileNo = snapshot.meta?.mobileNo || "";
-    this.userType = (snapshot.meta?.userType as "Designer" | "Retailer" | "retail" | "retailDesigner") || "Designer";
-    this.tableData = {
-      rows: (snapshot.tableData?.rows || []).map((row) => ({ ...row })),
-      grandTotal: snapshot.tableData?.grandTotal || ""
-    };
-    const imageByUrl = new Map(this.getDefaultImageUrls().map((item) => [item.url, item]));
-    this.pages = snapshot.pages.map((page, index) => {
-      const fromDefaultImages = Array.isArray(page.defaultImages)
-        ? page.defaultImages
-          .map((item) => (item?.url ? imageByUrl.get(item.url) || item : null))
-          .filter((item): item is SceneImageInput => !!item)
-        : [];
-      const singleCandidate = page.defaultImage
-        ? (page.defaultImage.url ? imageByUrl.get(page.defaultImage.url) || page.defaultImage : null)
-        : (page.defaultImageUrl ? imageByUrl.get(page.defaultImageUrl) : null);
-      const defaultImages = fromDefaultImages.length > 0
-        ? fromDefaultImages
-        : (singleCandidate ? [singleCandidate] : []);
-      const defaultImage = defaultImages[0] || undefined;
-      return {
-        id: page.id || crypto.randomUUID(),
-        name: page.name || `Page ${index + 1}`,
-        fabricJSON: page.fabricJSON ? JSON.parse(JSON.stringify(page.fabricJSON)) : null,
-        defaultImageUrl: defaultImage?.url || page.defaultImageUrl,
-        defaultImage,
-        defaultImages,
-        defaultLayout: page.defaultLayout
-      };
-    });
-    const activeExists = this.pages.some((page) => page.id === snapshot.activePageId);
-    this.activePageId = activeExists ? snapshot.activePageId : this.pages[0]?.id ?? null;
+    this.images = Array.isArray(snapshot.images) ? snapshot.images.map((img) => ({ ...img })) : [];
+
+    if (snapshot.pages.length === 0 && this.images.length > 0) {
+      const generated: ProposalDocumentSnapshot["pages"] = this.buildDefaultPagesFromImages(this.images);
+      this.pages = rebuildPagesFromSnapshot({ images: this.images, pages: generated });
+    } else {
+      this.pages = rebuildPagesFromSnapshot(snapshot);
+    }
+    if (this.pages.length === 0) {
+      this.pages = [{
+        id: crypto.randomUUID(),
+        name: "Page 1",
+        fabricJSON: null
+      }];
+    }
+    this.activePageId = this.pages[0]?.id ?? null;
     return true;
+  }
+
+  private buildDefaultPagesFromImages(images: ReviewImage[]): ProposalDocumentSnapshot["pages"] {
+    const PAGE_W = 794;
+    const PAGE_H = 1123;
+    const margin = 40;
+    const top = 100;
+    const bottom = 70;
+    const gap = 16;
+    const contentW = PAGE_W - margin * 2;
+    const contentH = PAGE_H - top - bottom;
+
+    const getMeta = (img: ReviewImage) => (img.metadata || {}) as Record<string, unknown>;
+    const findByType = (type: string) =>
+      images.find((img) => String(img.type || getMeta(img).type || "").toLowerCase() === type.toLowerCase()) || null;
+
+    const used = new Set<string>();
+    const take = (img: ReviewImage | null) => {
+      if (!img || !img.id) return null;
+      if (used.has(img.id)) return null;
+      used.add(img.id);
+      return img;
+    };
+
+    const first2D = take(findByType("2D Default") || findByType("2D") || images[0] || null);
+    const iso = take(findByType("Isometric"));
+    const wall = take(findByType("Wall"));
+
+    const remaining = images.filter((img) => img.id && !used.has(img.id));
+
+    const makeImageItem = (imageId: string, x: number, y: number, w: number, h: number): ReviewItem => ({
+      itemId: crypto.randomUUID(),
+      type: "image",
+      imageId,
+      position: { x, y },
+      size: { width: w, height: h },
+      rotation: 0,
+      scale: { x: 1, y: 1 },
+      opacity: 1,
+      locked: false,
+      hidden: false
+    });
+
+    const pages: ProposalDocumentSnapshot["pages"] = [];
+
+    if (first2D) {
+      pages.push({
+        pageId: crypto.randomUUID(),
+        items: [
+          makeImageItem(first2D.id as string, margin, top, contentW, Math.round(contentH * 0.5))
+        ]
+      });
+    }
+
+    if (iso || wall) {
+      const halfH = Math.round((contentH - gap) / 2);
+      const items: ReviewItem[] = [];
+      if (iso) items.push(makeImageItem(iso.id as string, margin, top, contentW, halfH));
+      if (wall) items.push(makeImageItem(wall.id as string, margin, top + halfH + gap, contentW, halfH));
+      pages.push({ pageId: crypto.randomUUID(), items });
+    }
+
+    for (let i = 0; i < remaining.length; i += 4) {
+      const chunk = remaining.slice(i, i + 4);
+      const colW = Math.round((contentW - gap) / 2);
+      const rowH = Math.round((contentH - gap) / 2);
+      const positions = [
+        { x: margin, y: top },
+        { x: margin + colW + gap, y: top },
+        { x: margin, y: top + rowH + gap },
+        { x: margin + colW + gap, y: top + rowH + gap }
+      ];
+      pages.push({
+        pageId: crypto.randomUUID(),
+        items: chunk.map((img, idx) => makeImageItem(img.id as string, positions[idx].x, positions[idx].y, colW, rowH))
+      });
+    }
+
+    if (pages.length === 0) {
+      pages.push({ pageId: crypto.randomUUID(), items: [] });
+    }
+    return pages;
   }
 
   importSnapshot(snapshot: ProposalDocumentSnapshot) {
@@ -132,170 +181,23 @@ export class Store {
     return true;
   }
 
-  // Setup Default Pages as Per Number of Images
-  setupDefaultPages() {
-    this.imageURL = this.getOrderedDefaultImages();
-    const isDesigner = this.userType.toLowerCase() === "designer";
-    const imagePages: Page[] = isDesigner
-      ? this.buildDesignerImagePages(this.imageURL)
-      : this.imageURL.map((image) => ({
-        id: crypto.randomUUID(),
-        name: "",
-        fabricJSON: null,
-        defaultImageUrl: image.url,
-        defaultImage: image,
-        defaultImages: [image],
-        defaultLayout: "single"
-      }));
-    imagePages.forEach((page, index) => {
-      page.name = `Page ${index + 1}`;
-    });
-    const bomPages = createBomPages(this.tableData);
-    this.pages = [...imagePages, ...bomPages];
-
-  }
-
-  private buildDesignerImagePages(images: SceneImageInput[]) {
-    const pages: Page[] = [];
-    const wallImages: SceneImageInput[] = [];
-    const nonWallImages: SceneImageInput[] = [];
-    let default2DImage: SceneImageInput | null = null;
-
-    images.forEach((image) => {
-      if (image.type === "Wall") {
-        wallImages.push(image);
-        return;
-      }
-      if (!default2DImage && image.type === "2D Default") {
-        default2DImage = image;
-        return;
-      }
-      nonWallImages.push(image);
-    });
-
-    if (default2DImage) {
-      const firstPageGridChunk = nonWallImages.slice(0, DESIGNER_GRID_MAX_PER_PAGE);
-      const firstPageImages = [default2DImage, ...firstPageGridChunk];
-      pages.push({
-        id: crypto.randomUUID(),
-        name: "",
-        fabricJSON: null,
-        defaultImageUrl: default2DImage.url,
-        defaultImage: default2DImage,
-        defaultImages: firstPageImages,
-        defaultLayout: firstPageGridChunk.length > 0 ? "top-grid" : "single"
-      });
-    }
-
-    const nonWallStartIndex = default2DImage ? DESIGNER_GRID_MAX_PER_PAGE : 0;
-    for (let index = nonWallStartIndex; index < nonWallImages.length; index += DESIGNER_GRID_MAX_PER_PAGE) {
-      const chunk = nonWallImages.slice(index, index + DESIGNER_GRID_MAX_PER_PAGE);
-      pages.push({
-        id: crypto.randomUUID(),
-        name: "",
-        fabricJSON: null,
-        defaultImageUrl: chunk[0].url,
-        defaultImage: chunk[0],
-        defaultImages: chunk,
-        defaultLayout: chunk.length === 1 ? "single" : "grid-2-col"
-      });
-    }
-
-    for (let index = 0; index < wallImages.length; index += WALL_GRID_MAX_PER_PAGE) {
-      const wallChunk = wallImages.slice(index, index + WALL_GRID_MAX_PER_PAGE);
-      pages.push({
-        id: crypto.randomUUID(),
-        name: "",
-        fabricJSON: null,
-        defaultImageUrl: wallChunk[0]?.url,
-        defaultImage: wallChunk[0],
-        defaultImages: wallChunk,
-        defaultLayout: "wall-grid"
-      });
-    }
-
-    return pages;
-  }
-
-  // Get Image List From Json Data
-  getDefaultImageUrls() {
-    const source = imageList as unknown;
-    if (!Array.isArray(source)) return [];
-    return source
-      .map((item, index) => {
-        if (typeof item === "string") {
-          return {
-            url: item,
-            type: IMAGE_TYPE_CYCLE[index % IMAGE_TYPE_CYCLE.length],
-            notes: [],
-            baseUrl: ""
-          } satisfies SceneImageInput;
-        }
-        if (!item || typeof item !== "object") return null;
-        const candidate = item as Partial<SceneImageInput>;
-        const url = typeof candidate.url === "string" ? candidate.url : "";
-        if (!url) return null;
-        const type = IMAGE_TYPE_CYCLE.includes(candidate.type as SceneImageType)
-          ? (candidate.type as SceneImageType)
-          : IMAGE_TYPE_CYCLE[index % IMAGE_TYPE_CYCLE.length];
-        return {
-          url,
-          type,
-          notes: Array.isArray(candidate.notes) ? candidate.notes : [],
-          baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl : ""
-        } satisfies SceneImageInput;
-      })
-      .filter((item): item is SceneImageInput => !!item);
-  }
-
-  private getOrderedDefaultImages() {
-    const list = this.getDefaultImageUrls();
-    const isDesigner = this.userType.toLowerCase() === "designer";
-    const order = isDesigner ? DESIGNER_IMAGE_ORDER : NON_DESIGNER_IMAGE_ORDER;
-    const orderIndex = new Map(order.map((type, index) => [type, index]));
-
-    return [...list].sort((a, b) => {
-      const aIdx = orderIndex.get(a.type);
-      const bIdx = orderIndex.get(b.type);
-      if (aIdx === undefined && bIdx === undefined) return 0;
-      if (aIdx === undefined) return 1;
-      if (bIdx === undefined) return -1;
-      return aIdx - bIdx;
-    });
-  }
-
-  // Load User Data From Json
-  loadUser() {
-    const firstUser = (userData as { users: UserRecord[] }).users[0];
-    if (!firstUser) return;
-    this.projectId = firstUser.projectId;
-    this.projectName = firstUser.projectName;
-    this.customerName = firstUser.customerName;
-    this.designerEmail = firstUser.designerEmail;
-    this.date = firstUser.date;
-    this.mobileNo = firstUser.mobileNo;
-    this.userType = firstUser.userType || "Designer";
-    this.images = firstUser.images ?? [];
-  }
-
-  // Get Table (BOM) Data From Json
-  setupTableData() {
-    const source = tableData as TableData;
-    this.tableData = {
-      rows: (source.rows || []).map((row) => ({ ...row })),
-      grandTotal: source.grandTotal || ""
-    };
-  }
-
   // Set Active Page
   setActivePageId(id: string) {
     this.activePageId = id;
   }
 
-  // Add Capture Into Pending Capture Array
-  addCapture(dataUrl: string) {
-    const captureId = crypto.randomUUID();
-    this.pendingCaptures = [...this.pendingCaptures, { id: captureId, dataUrl }];
+  async addCapturedImage(dataUrl: string, metadata: ReviewImageMetadata = {}) {
+    const id = crypto.randomUUID();
+    const blob = await fetch(dataUrl).then((res) => res.blob());
+    const blobUrl = URL.createObjectURL(blob);
+    const image: ReviewImage = {
+      id,
+      imageUrl: "",
+      blobUrl,
+      metadata: { ...metadata }
+    };
+    this.images = [...this.images, image];
+    return image;
   }
 
   // Set Stored Data Of The Canvas (Page)

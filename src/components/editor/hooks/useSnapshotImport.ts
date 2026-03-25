@@ -24,16 +24,6 @@ export function useSnapshotImport(store: Store) {
       return;
     }
 
-    const current = store.toDocumentSnapshot();
-    const isDifferentProject =
-      (snapshot.meta.projectId || "") !== (current.meta.projectId || "") ||
-      (snapshot.meta.projectName || "") !== (current.meta.projectName || "") ||
-      (snapshot.meta.customerName || "") !== (current.meta.customerName || "");
-
-    if (isDifferentProject) {
-      toast.error("Imported file appears to be from a different project.");
-    }
-
     const loaded = store.importSnapshot(snapshot);
     if (!loaded) {
       toast.error("Unable to load this JSON snapshot.");

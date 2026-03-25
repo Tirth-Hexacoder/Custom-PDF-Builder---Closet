@@ -170,6 +170,14 @@ function createHeaderGroup(
 
 function addOrUpdateContact(canvas: AnyCanvas, designerEmail?: string, designerMobile?: string, addIfMissing = true) {
   const text = buildDesignerContactText(designerEmail, designerMobile);
+
+  // Fail-safe cleanup: If custom ID was stripped during JSON round-trips, find orphans and delete them.
+  const orphans = canvas.getObjects().filter((obj: any) => {
+    if (obj.data?.id === CONTACT_INFO_ID) return false;
+    return typeof obj.text === "string" && obj.text === text;
+  });
+  orphans.forEach((o) => canvas.remove(o));
+
   const existing = findById(canvas, CONTACT_INFO_ID);
   if (existing) {
     if ("text" in existing) {

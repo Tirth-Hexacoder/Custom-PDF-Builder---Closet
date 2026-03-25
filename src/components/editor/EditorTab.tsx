@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react-lite";
 import { A4_PX } from "@closet/core";
-import type { FabricCanvasHandle, Page, PendingCapture } from "../../types";
+import type { FabricCanvasHandle, Page } from "../../types";
 import { useStore } from "../../state/Root";
 import { FabricCanvas } from "./FabricCanvas";
 import { renderPagePreview } from "../../utils/pagePreviewUtils";
@@ -24,8 +24,6 @@ export const EditorTab = observer(function EditorTab() {
 
   const canvasRef = useRef<FabricCanvasHandle | null>(null);
 
-  const processedCaptureIdsRef = useRef<Set<string>>(new Set());
-  const pendingCaptureBufferRef = useRef<PendingCapture[]>([]);
   const dragIndexRef = useRef<number | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
@@ -67,10 +65,7 @@ export const EditorTab = observer(function EditorTab() {
   );
   const trayImages = Array.from(
     new Set(
-      [
-        ...store.pages.flatMap((page) => getPageDefaultImageUrls(page)),
-        ...store.images.map((img) => img.url || "")
-      ].filter((url): url is string => !!url)
+      store.images.map((img) => img.url || img.imageUrl || img.blobUrl || "").filter((url): url is string => !!url)
     )
   );
   const zoomScale = zoomPercent / 100;
@@ -101,45 +96,6 @@ export const EditorTab = observer(function EditorTab() {
     if (page) store.setActivePageId(page.id);
     setPageInput(String(target));
   };
-
-  // Adding Image on Canvas (Page) and Processed Capture Array
-  const addCaptureImages = (queue: PendingCapture[]) => {
-    queue.forEach((item) => {
-      if (!item?.dataUrl) return;
-      if (processedCaptureIdsRef.current.has(item.id)) return;
-      processedCaptureIdsRef.current.add(item.id);
-      canvasRef.current?.addImage(item.dataUrl);
-    });
-  };
-
-  // Taken Screeshot Transfered from Pending Capture Array to Queue (Which will be added to Canvas (Page))
-  // If Page is not First Page then Images Still Added into First Page
-  useEffect(() => {
-    if (!canvasReady || !canvasRef.current || store.pendingCaptures.length === 0) return;
-    const firstPageId = store.pages[0]?.id;
-    if (!firstPageId) return;
-    if (store.activePageId !== firstPageId) {
-      const queue = [...store.pendingCaptures];
-      store.pendingCaptures = [];
-      pendingCaptureBufferRef.current.push(...queue);
-      store.setActivePageId(firstPageId);
-      return;
-    }
-    const queue = [...store.pendingCaptures];
-    store.pendingCaptures = [];
-    addCaptureImages(queue);
-  }, [canvasReady, store.pendingCaptures.length]);
-
-  // Adding All Pending Capture Array's Images to First Page Only
-  useEffect(() => {
-    const firstPageId = store.pages[0]?.id;
-    if (!canvasReady || !canvasRef.current || !firstPageId) return;
-    if (store.activePageId !== firstPageId) return;
-    if (pendingCaptureBufferRef.current.length === 0) return;
-    const queue = [...pendingCaptureBufferRef.current];
-    pendingCaptureBufferRef.current = [];
-    addCaptureImages(queue);
-  }, [canvasReady, store.activePageId]);
 
   // Page Switching UI Update on Left Panel
   useEffect(() => {

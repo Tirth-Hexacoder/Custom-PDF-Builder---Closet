@@ -1,15 +1,14 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import toast from "react-hot-toast";
-import { SceneTab } from "./components/scene/SceneTab";
 import { EditorTab } from "./components/editor/EditorTab";
 import { ExportTab } from "./components/editor/ExportTab";
+import { PluginBridge } from "./integration/PluginBridge";
 import { useStore } from "./state/Root";
+import { saveLatestSnapshotToIdb } from "./utils/idbSnapshotTransport";
 import type { AppTab, TabId } from "./types";
 
 const tabs: AppTab[] = [
-  { id: "scene", label: "Scene" },
   { id: "editor", label: "Editor" },
   { id: "download", label: "Download" }
 ];
@@ -23,7 +22,8 @@ export default function App() {
 
   const goNext = () => {
     const nextIndex = Math.min(activeIndex + 1, tabs.length - 1);
-    setActiveTab(tabs[nextIndex].id);
+    const nextTab = tabs[nextIndex].id;
+    setActiveTab(nextTab);
   };
 
   const goPrev = () => {
@@ -31,8 +31,32 @@ export default function App() {
     setActiveTab(tabs[prevIndex].id);
   };
 
+  const goToSceneForCapture = () => {
+    try {
+      const snapshot = store.toDocumentSnapshot();
+      void saveLatestSnapshotToIdb(snapshot).then(() => {
+        const sceneUrlBase =
+          window.sessionStorage?.getItem("review_plugin_scene_url") ||
+          (import.meta as any).env?.VITE_SCENE_URL ||
+          "http://localhost:5174/";
+        const sep = sceneUrlBase.includes("?") ? "&" : "?";
+        const editorUrl = encodeURIComponent(window.location.origin + window.location.pathname);
+        const params = new URLSearchParams(window.location.search);
+        const projectId = params.get("projectId") || store.projectId;
+        const closetId = params.get("closetId") || "";
+        const tokenStr = params.get("token") ? `&token=${params.get("token")}` : "";
+
+        window.location.href = `${sceneUrlBase}${sep}editorUrl=${editorUrl}&projectId=${projectId}&closetId=${closetId}${tokenStr}`;
+      });
+    } catch (error) {
+      console.warn("[ReviewPlugin] Failed to redirect to scene", error);
+      toast.error("Failed to open scene.");
+    }
+  };
+
   return (
     <div className="app-shell">
+      <PluginBridge />
       <Toaster position="top-center" />
       <header className="topbar">
         <div className="brand">
@@ -42,7 +66,7 @@ export default function App() {
         <div className="topbar-center">
           {activeTab === "editor" && (
             <div className="toolbar-nav-center">
-              <button className="nav-center-btn" onClick={goPrev}>
+              <button className="nav-center-btn" onClick={goToSceneForCapture}>
                 <i className="fa-solid fa-chevron-left"></i> Scene View
               </button>
               <div className="toolbar-divider"></div>
@@ -55,34 +79,50 @@ export default function App() {
 
         <div className="meta">
           {activeTab === "editor" && (
-            <button
-              className="pill-item benchmark-pill-link"
-              onClick={() => {
-                const saved = store.saveSnapshot();
-                if (saved) toast.success("Changes saved.");
-                else toast.error("Failed to save changes.");
-              }}
-              type="button"
-            >
-              <span className="pill-text">Save</span>
-            </button>
+            <>
+              <button
+                className="pill-item"
+                onClick={async () => {
+                  const saved = store.saveSnapshot();
+                  try {
+                    const snapshot = store.toDocumentSnapshot();
+                    
+                    const params = new URLSearchParams(window.location.search);
+                    const projectId = params.get("projectId");
+                    const closetId = params.get("closetId");
+                    
+                    if (projectId && closetId) {
+                      const res = await fetch(`http://localhost:4000/api/project/${projectId}/closet/${closetId}/save`, {
+                         method: "POST",
+                         headers: { "Content-Type": "application/json" },
+                         body: JSON.stringify({ jsonPayload: snapshot })
+                      });
+                      if (res.ok) toast.success("Saved to Datastore!");
+                    } else {
+                      void saveLatestSnapshotToIdb(snapshot);
+                      if (saved) toast.success("Data saved locally.");
+                    }
+                  } catch (error) {
+                    console.warn("[ReviewPlugin] Failed to persist snapshot", error);
+                    toast.error("Failed to save.");
+                  }
+                }}
+                type="button"
+              >
+                <span className="pill-text">Save</span>
+              </button>
+              <button className="pill-item" onClick={goToSceneForCapture} type="button">
+                <span className="pill-text">Add / Edit Scene</span>
+              </button>
+            </>
           )}
-          <Link className="pill-item benchmark-pill-link" to="/crop-benchmark">
-            <span className="pill-text">Crop Benchmark</span>
-          </Link>
           <div className="pill-item">
             <span className="pill-text">{activeTabLabel}</span>
           </div>
         </div>
       </header>
 
-      <div className={`main-wrapper ${activeTab === "scene" ? "full-screen-scene" : ""}`}>
-
-        {activeTab === "scene" && (
-          <button className="corner-nav-btn bottom-right" onClick={goNext}>
-            Go To Editor &rarr;
-          </button>
-        )}
+      <div className="main-wrapper">
 
         {activeTab === "download" && (
           <button className="corner-nav-btn bottom-left" onClick={goPrev}>
@@ -90,10 +130,7 @@ export default function App() {
           </button>
         )}
 
-        <main className={`content ${activeTab === "scene" || activeTab === "editor" ? "full-width" : ""}`}>
-          <div style={{ display: activeTab === "scene" ? "block" : "none", width: "100%", height: "100%" }}>
-            <SceneTab isActive={activeTab === "scene"} />
-          </div>
+        <main className={`content ${activeTab === "editor" ? "full-width" : ""}`}>
           <div style={{ display: activeTab === "editor" ? "block" : "none", width: "100%", height: "100%" }}>
             <EditorTab />
           </div>
