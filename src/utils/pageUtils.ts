@@ -1002,12 +1002,11 @@ export function createPageCanvas(options: CreateCanvasOptions) {
           }
           const sourceWidth = img.width || 1;
           const sourceHeight = img.height || 1;
-          console.log("This is cell image url" + cell.image.url)
-          // Never upscale or crop — only shrink if the image exceeds the full canvas
-          const canvasWidth = canvas.getWidth();
-          const canvasHeight = canvas.getHeight();
-          const scale = Math.min(1, canvasWidth / sourceWidth, canvasHeight / sourceHeight);
-          // img.scale(scale);
+          
+          // Fit proportionally inside the cell slot — no cropping, no stretching
+          const scale = Math.min(cell.width / sourceWidth, cell.height / sourceHeight, 1);
+          img.scale(scale);
+
           img.set({
             left: cell.left + (cell.width - img.getScaledWidth()) / 2,
             top: cell.top + (cell.height - img.getScaledHeight()) / 2,
@@ -1016,7 +1015,9 @@ export function createPageCanvas(options: CreateCanvasOptions) {
               reviewItemId: typeof (img.data as any)?.reviewItemId === "string" ? (img.data as any).reviewItemId : crypto.randomUUID(),
               id: "default-page-image",
               source: "default-image",
-              defaultImageUrl: cell.image.url
+              defaultImageUrl: cell.image.url,
+              slotWidth: cell.width,
+              slotHeight: cell.height
             }
           });
           applyImageControls(img);

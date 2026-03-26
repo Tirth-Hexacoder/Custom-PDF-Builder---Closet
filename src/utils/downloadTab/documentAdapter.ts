@@ -90,7 +90,15 @@ function reviewItemsFromFabricJson(json: FabricJSON, imageIdByUrl: Map<string, s
     const data = isRecord(obj.data) ? (obj.data as Record<string, unknown>) : {};
     const itemId = asString(data.reviewItemId) || `item_${index}_${stableIdFromString(JSON.stringify(obj).slice(0, 64))}`;
     const position = { x: asNumber(obj.left, 0), y: asNumber(obj.top, 0) };
-    const size = { width: asNumber(obj.width, 0), height: asNumber(obj.height, 0) };
+    
+    // Logic: If we stored a logical 'slot' size (for auto-layouts), prioritize that.
+    // Otherwise, use the actual object dimensions (for user-added/transformed items).
+    const slotW = asNumber(data.slotWidth, 0);
+    const slotH = asNumber(data.slotHeight, 0);
+    const size = (slotW > 0 && slotH > 0) 
+      ? { width: slotW, height: slotH }
+      : { width: asNumber(obj.width, 0), height: asNumber(obj.height, 0) };
+
     const rotation = asNumber(obj.angle, 0);
     const scale = { x: asNumber(obj.scaleX, 1), y: asNumber(obj.scaleY, 1) };
     const opacity = asNumber(obj.opacity, 1);
@@ -333,8 +341,10 @@ export function buildDocumentSnapshot(source: StoreLike): ProposalDocumentSnapsh
     if (!imageById.has(id)) {
       const normalized: ReviewImage = {
         id,
+        url: looksLikeTempUrl(url) ? undefined : url,
         imageUrl: looksLikeTempUrl(url) ? "" : url,
         blobUrl: looksLikeTempUrl(url) ? url : img.blobUrl,
+        type: img.type,
         metadata: img.metadata ? clone(img.metadata) : undefined
       };
       imageById.set(id, normalized);

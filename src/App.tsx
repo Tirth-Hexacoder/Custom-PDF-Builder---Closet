@@ -44,9 +44,8 @@ export default function App() {
         const params = new URLSearchParams(window.location.search);
         const projectId = params.get("projectId") || store.projectId;
         const closetId = params.get("closetId") || "";
-        const tokenStr = params.get("token") ? `&token=${params.get("token")}` : "";
 
-        window.location.href = `${sceneUrlBase}${sep}editorUrl=${editorUrl}&projectId=${projectId}&closetId=${closetId}${tokenStr}`;
+        window.location.href = `${sceneUrlBase}${sep}projectId=${projectId}&closetId=${closetId}`;
       });
     } catch (error) {
       console.warn("[ReviewPlugin] Failed to redirect to scene", error);
@@ -86,6 +85,7 @@ export default function App() {
                   const saved = store.saveSnapshot();
                   try {
                     const snapshot = store.toDocumentSnapshot();
+                    console.log("[Save] Snapshot built:", { pages: snapshot.pages?.length, images: snapshot.images?.length });
                     
                     const params = new URLSearchParams(window.location.search);
                     const projectId = params.get("projectId");
@@ -97,13 +97,19 @@ export default function App() {
                          headers: { "Content-Type": "application/json" },
                          body: JSON.stringify({ jsonPayload: snapshot })
                       });
-                      if (res.ok) toast.success("Saved to Datastore!");
+                      if (res.ok) {
+                        toast.success("Saved to Datastore!");
+                      } else {
+                        const errText = await res.text();
+                        console.error("[Save] Backend error:", res.status, errText);
+                        toast.error(`Save failed: ${res.status}`);
+                      }
                     } else {
                       void saveLatestSnapshotToIdb(snapshot);
                       if (saved) toast.success("Data saved locally.");
                     }
                   } catch (error) {
-                    console.warn("[ReviewPlugin] Failed to persist snapshot", error);
+                    console.error("[Save] Exception:", error);
                     toast.error("Failed to save.");
                   }
                 }}
