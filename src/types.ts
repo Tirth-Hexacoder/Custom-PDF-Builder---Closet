@@ -229,6 +229,8 @@ export type ReviewItemBase = {
 export type ReviewImageItem = ReviewItemBase & {
   type: "image";
   imageId: string;
+  source?: string;
+  isInitialized?: boolean;
   crop?: {
     cropX: number;
     cropY: number;

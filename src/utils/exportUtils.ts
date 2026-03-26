@@ -309,7 +309,31 @@ async function buildCanvasForPage(page: Page, options: RenderImageOptions) {
 
   if (page.fabricJSON) {
     await new Promise<void>((resolve) => {
-      canvas.loadFromJSON(page.fabricJSON, () => resolve());
+      canvas.loadFromJSON(page.fabricJSON, () => {
+        // Apply proportional fit-scaling for exported pages just like the interactive canvas
+        canvas.getObjects().forEach((obj) => {
+          if (obj.type !== "image") return;
+          const img = obj as fabric.Image;
+          const slotW: number | undefined = img.data?.slotWidth;
+          const slotH: number | undefined = img.data?.slotHeight;
+          if (!slotW || !slotH) return;
+          const naturalW = img.width || 1;
+          const naturalH = img.height || 1;
+          
+          if (img.data?.source === "default-image" && !img.data?.isInitialized) {
+            const fitScale = Math.min(slotW / naturalW, slotH / naturalH, 1);
+            img.set({
+              scaleX: fitScale,
+              scaleY: fitScale,
+              left: (img.left ?? 0) + (slotW - naturalW * fitScale) / 2,
+              top:  (img.top  ?? 0) + (slotH - naturalH * fitScale) / 2,
+              data: { ...(img.data || {}), isInitialized: true }
+            });
+            img.setCoords();
+          }
+        });
+        resolve();
+      });
     });
     syncNotesOnLoadedCanvas(canvas, page);
     normalizeDimmedOpacityForExport(canvas);

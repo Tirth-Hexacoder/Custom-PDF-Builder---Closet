@@ -119,6 +119,8 @@ function reviewItemsFromFabricJson(json: FabricJSON, imageIdByUrl: Map<string, s
         opacity,
         locked,
         hidden,
+        source: asString(data.source) || undefined,
+        isInitialized: !!data.isInitialized,
         crop: {
           cropX: asNumber(obj.cropX, 0),
           cropY: asNumber(obj.cropY, 0),
@@ -213,7 +215,9 @@ function fabricJsonFromReviewItems(items: ReviewItem[], imagesById: Map<string, 
           cropSourceHeight: item.crop?.sourceHeight,
           // Store slot size so the canvas can auto-scale to fit after load
           slotWidth: item.size.width,
-          slotHeight: item.size.height
+          slotHeight: item.size.height,
+          source: (item as any).source,
+          isInitialized: (item as any).isInitialized
         },
         selectable: true,
         evented: true,

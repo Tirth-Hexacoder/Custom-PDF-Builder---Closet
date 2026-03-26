@@ -1082,15 +1082,18 @@ export function createPageCanvas(options: CreateCanvasOptions) {
           if (!slotW || !slotH) return;
           const naturalW = img.width || 1;
           const naturalH = img.height || 1;
-          const fitScale = Math.min(slotW / naturalW, slotH / naturalH, 1);
-          img.set({
-            scaleX: fitScale,
-            scaleY: fitScale,
-            // Re-center inside slot
-            left: (img.left ?? 0) + (slotW - naturalW * fitScale) / 2,
-            top:  (img.top  ?? 0) + (slotH - naturalH * fitScale) / 2
-          });
-          img.setCoords();
+          
+          if (img.data?.source === "default-image" && !img.data?.isInitialized) {
+            const fitScale = Math.min(slotW / naturalW, slotH / naturalH, 1);
+            img.set({
+              scaleX: fitScale,
+              scaleY: fitScale,
+              left: (img.left ?? 0) + (slotW - naturalW * fitScale) / 2,
+              top:  (img.top  ?? 0) + (slotH - naturalH * fitScale) / 2,
+              data: { ...(img.data || {}), isInitialized: true }
+            });
+            img.setCoords();
+          }
         });
 
         ensureBomTableGroup();

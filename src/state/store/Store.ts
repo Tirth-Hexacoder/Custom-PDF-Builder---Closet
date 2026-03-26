@@ -131,7 +131,8 @@ export class Store {
       scale: { x: 1, y: 1 },
       opacity: 1,
       locked: false,
-      hidden: false
+      hidden: false,
+      source: "default-image"
     });
 
     const pages: ProposalDocumentSnapshot["pages"] = [];
@@ -211,6 +212,14 @@ export class Store {
 
   toDocumentSnapshot(): ProposalDocumentSnapshot {
     return buildDocumentSnapshot(this);
+  }
+
+  // Automatically arranges raw capture images into default layout pages and appends them
+  appendDefaultPagesForImages(newImgs: ReviewImage[]) {
+    if (!newImgs.length) return;
+    const generated = this.buildDefaultPagesFromImages(newImgs);
+    const newFabricPages = rebuildPagesFromSnapshot({ images: this.images, pages: generated });
+    this.pages.push(...newFabricPages);
   }
 
   // Create & Add Page Into Pages Array of Store

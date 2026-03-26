@@ -21,13 +21,13 @@ export function PluginBridge() {
     const params = new URLSearchParams(window.location.search);
     const hasUrlSnapshot = !!(params.get("data") || params.get("snapshot"));
 
-    const loadData = async () => {
+    const loadData = async (isFocusEvent = false) => {
       try {
         const projectId = params.get("projectId");
         const closetId = params.get("closetId");
 
         if (projectId && closetId) {
-          console.log("[ReviewPlugin] Fetching network project state...");
+          if (!isFocusEvent) console.log("[ReviewPlugin] Fetching network project state...");
           let dbData = null;
           try {
             const res = await fetch(`http://localhost:4000/api/project/${projectId}/closet/${closetId}`, {
@@ -48,27 +48,61 @@ export function PluginBridge() {
           // Even with a DB profile, check for unsaved roaming session data from the Scene transition
           const localSnapshot = await loadLatestSnapshotFromIdb();
 
-          if (localSnapshot && localSnapshot.images.length > 0) {
-            console.log("[ReviewPlugin] Found unsaved local IDB payload, bypassing raw DB load.");
-            store.importSnapshot(localSnapshot);
-          } else if (dbData) {
-            if (dbData.hasSavedJson) {
-              const imgs = dbData.jsonPayload?.images || [];
-              console.group("[ReviewPlugin] DB Images (Saved JSON)");
-              imgs.forEach((img: any, i: number) => {
-                console.log(`[${i}] url: ${img.url || img.blobUrl || img.imageUrl || "(none)"}`);
-              });
-              console.groupEnd();
-              store.importSnapshot(dbData.jsonPayload);
-            } else {
-              const imgs: any[] = dbData.images || [];
-              console.group("[ReviewPlugin] DB Images (Raw)");
-              imgs.forEach((img: any, i: number) => {
-                console.log(`[${i}] url: ${img.url || img.blobUrl || img.imageUrl || "(none)"}`);
-              });
-              console.groupEnd();
-              store.importSnapshot({ images: imgs, pages: [] });
+          if (dbData) {
+            // Unify image lists to ensure we don't drop older saved images or new unappended DB captures
+            const savedImgs = dbData.hasSavedJson ? (dbData.jsonPayload?.images || []) : [];
+            const rawDbImgs = dbData.images || [];
+            const mergedImgsMap = new Map();
+            savedImgs.forEach((img: any) => { if (img.id) mergedImgsMap.set(img.id, img); });
+            rawDbImgs.forEach((img: any) => { if (img.id) mergedImgsMap.set(img.id, img); });
+            const dbImgs = Array.from(mergedImgsMap.values());
+            
+            // 1. Soft Refresh: Tab Focus without a pending IDB handoff.
+            if (isFocusEvent && !localSnapshot) {
+              const currentIds = new Set(store.images.map(img => img.id));
+              const newImgs = dbImgs.filter((img: any) => img.id && !currentIds.has(img.id));
+              if (newImgs.length > 0) {
+                console.log(`[ReviewPlugin] Soft refresh: Merged ${newImgs.length} new images into tray.`);
+                store.images.push(...newImgs);
+                store.appendDefaultPagesForImages(newImgs);
+              }
+              return; // Skip full layout reset
             }
+
+            // 2. IDB Handoff: Returning from Scene with unsaved edits.
+            if (localSnapshot && localSnapshot.images) {
+              console.log("[ReviewPlugin] Found unsaved local IDB payload, bypassing raw DB load.");
+              // Merge any new DB images (the newly captured scene) into the local snapshot
+              const localIds = new Set(localSnapshot.images.map((img: any) => img.id));
+              const newImgs = dbImgs.filter((img: any) => img.id && !localIds.has(img.id));
+              if (newImgs.length > 0) {
+                console.log(`[ReviewPlugin] Merging ${newImgs.length} fresh DB captures into IDB session limits.`);
+                localSnapshot.images.unshift(...newImgs); // Put new images at the top
+              }
+              store.importSnapshot(localSnapshot);
+              if (newImgs.length > 0) {
+                store.appendDefaultPagesForImages(newImgs);
+              }
+            } else {
+              // 3. Hard DB Load (Initial Mount with no IDB cache)
+              if (dbData.hasSavedJson) {
+                store.importSnapshot({
+                  ...dbData.jsonPayload,
+                  images: dbImgs
+                });
+                
+                // Now that the saved layout is restored, dynamically append any newly discovered captures
+                const usedIds = new Set(dbData.jsonPayload.images?.map((i: any) => i.id) || []);
+                const brandNewImgs = dbImgs.filter((img: any) => img.id && !usedIds.has(img.id));
+                if (brandNewImgs.length > 0) {
+                  store.appendDefaultPagesForImages(brandNewImgs);
+                }
+              } else {
+                store.importSnapshot({ images: dbImgs, pages: [] });
+              }
+            }
+          } else if (localSnapshot && localSnapshot.images.length > 0) {
+             store.importSnapshot(localSnapshot);
           }
 
           await clearLatestSnapshotFromIdb(); // clear stale Local IDB
@@ -91,14 +125,14 @@ export function PluginBridge() {
     };
 
     const handleFocusOrVisible = () => {
-      if (document.visibilityState === "visible") loadData();
+      if (document.visibilityState === "visible") loadData(true);
     };
 
     window.addEventListener("focus", handleFocusOrVisible);
     document.addEventListener("visibilitychange", handleFocusOrVisible);
 
-    // Initial load
-    loadData();
+    // Initial load — runs once on mount
+    loadData(false);
 
     const api: ReviewPluginApi = {
       load(snapshot) {
