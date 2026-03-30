@@ -92,10 +92,14 @@ function reviewItemsFromFabricJson(json: FabricJSON, imageIdByUrl: Map<string, s
     const position = { x: asNumber(obj.left, 0), y: asNumber(obj.top, 0) };
     
     // Logic: If we stored a logical 'slot' size (for auto-layouts), prioritize that.
-    // Otherwise, use the actual object dimensions (for user-added/transformed items).
+    // But once an image is cropped, we must preserve the cropped box dimensions so
+    // selection bounds match after snapshot rebuild.
     const slotW = asNumber(data.slotWidth, 0);
     const slotH = asNumber(data.slotHeight, 0);
-    const size = (slotW > 0 && slotH > 0) 
+    const cropX = asNumber((obj as any).cropX, 0);
+    const cropY = asNumber((obj as any).cropY, 0);
+    const hasCrop = cropX !== 0 || cropY !== 0;
+    const size = (!hasCrop && slotW > 0 && slotH > 0)
       ? { width: slotW, height: slotH }
       : { width: asNumber(obj.width, 0), height: asNumber(obj.height, 0) };
 
@@ -122,8 +126,8 @@ function reviewItemsFromFabricJson(json: FabricJSON, imageIdByUrl: Map<string, s
         source: asString(data.source) || undefined,
         isInitialized: !!data.isInitialized,
         crop: {
-          cropX: asNumber(obj.cropX, 0),
-          cropY: asNumber(obj.cropY, 0),
+          cropX,
+          cropY,
           width: asNumber(obj.width, 0),
           height: asNumber(obj.height, 0),
           sourceWidth: typeof data.cropSourceWidth === "number" ? data.cropSourceWidth : undefined,
@@ -276,6 +280,12 @@ function fabricJsonFromReviewItems(items: ReviewItem[], imagesById: Map<string, 
         visible: item.hidden ? false : true,
         cropX: item.crop?.cropX ?? 0,
         cropY: item.crop?.cropY ?? 0,
+        ...((item.crop && ((item.crop.cropX ?? 0) !== 0 || (item.crop.cropY ?? 0) !== 0))
+          ? {
+              width: item.crop.width,
+              height: item.crop.height
+            }
+          : {}),
         src,
         crossOrigin: "anonymous",
         data: {
