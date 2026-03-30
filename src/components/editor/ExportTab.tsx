@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 import { useStore } from "../../state/Root";
 import { exportClosetPdf } from "../../api/backend";
 import { downloadSnapshotJson, exportStoreAsPdf } from "../../utils/downloadTab/documentAdapter";
+import { readAuthContextFromUrl } from "../../auth";
 
 export const ExportTab = observer(function ExportTab() {
   const store = useStore();
@@ -14,25 +15,26 @@ export const ExportTab = observer(function ExportTab() {
       downloadSnapshotJson(snapshot);
       const pdfBlob = await exportStoreAsPdf(store);
 
-      const params = new URLSearchParams(window.location.search);
-      const projectId = params.get("projectId");
-      const closetId = params.get("closetId");
-      
-      if (projectId && closetId && pdfBlob) {
-          const res = await exportClosetPdf(projectId, closetId, snapshot, pdfBlob);
-          if (res.ok) toast.success("PDF synced to server successfully!");
+      const authResult = readAuthContextFromUrl();
+      if (!authResult.ok) {
+        toast.error(authResult.error);
+        return;
+      }
+
+      if (pdfBlob) {
+        const res = await exportClosetPdf(
+          authResult.ctx.projectId,
+          authResult.ctx.closetId,
+          snapshot,
+          pdfBlob,
+          authResult.ctx.token
+        );
+        if (res.ok) toast.success("PDF synced to server successfully!");
       }
     } catch (err) {
       console.error(err);
       toast.error("Failed to export PDF.");
     }
-  };
-
-  // Saves the current working snapshot into session storage.
-  const saveSnapshot = () => {
-    const saved = store.saveSnapshot();
-    if (saved) toast.success("Changes saved.");
-    else toast.error("Failed to save changes.");
   };
 
   return (

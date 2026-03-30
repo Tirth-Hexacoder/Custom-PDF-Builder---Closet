@@ -1,137 +1,87 @@
 import { useEffect } from "react";
 import { useStore } from "../state/Root";
 import type { ProposalDocumentSnapshot } from "../types";
+import type { AuthContext } from "../auth";
 import { fetchCloset } from "../api/backend";
 import { downloadSnapshotJson, exportStoreAsPdf } from "../utils/downloadTab/documentAdapter";
-import { clearLatestSnapshotFromIdb, loadLatestSnapshotFromIdb } from "../utils/idbSnapshotTransport";
 
 type ReviewPluginApi = {
   load: (snapshot: ProposalDocumentSnapshot) => boolean;
   getSnapshot: () => ProposalDocumentSnapshot;
   exportPdf: () => Promise<void>;
   downloadJson: () => void;
-  saveToSession: () => boolean;
 };
 
 // Bridge for embedding this app as a plugin (e.g. in an iframe).
 // Host can read `window.__REVIEW_PLUGIN_API__` to load/save/export without changing editor behavior.
-export function PluginBridge() {
+export function PluginBridge({ auth }: { auth: AuthContext }) {
   const store = useStore();
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const hasUrlSnapshot = !!(params.get("data") || params.get("snapshot"));
+    let cancelled = false;
 
-    // Loads editor data from backend/URL/IndexedDB based on the embedding context.
-    const loadData = async (isFocusEvent = false) => {
+    const loadFromBackend = async (isFocusEvent = false) => {
       try {
-        const projectId = params.get("projectId");
-        const closetId = params.get("closetId");
+        if (!isFocusEvent) console.log("[ReviewPlugin] Fetching network project state...");
+        const res = await fetchCloset(auth.projectId, auth.closetId, {
+          headers: { Authorization: `Bearer ${auth.token}` }
+        });
+        if (!res.ok) {
+          console.warn("[ReviewPlugin] Backend error:", res.status);
+          return;
+        }
+        const data = (await res.json()) as any;
+        if (!data?.success) return;
+        if (cancelled) return;
 
-        if (projectId && closetId) {
-          if (!isFocusEvent) console.log("[ReviewPlugin] Fetching network project state...");
-          let dbData = null;
-          try {
-            const res = await fetchCloset(projectId, closetId);
-              if (res.ok) {
-                const data = await res.json();
-                if (data.success) dbData = data;
-              }
-            } catch (err) {
-            console.warn("[ReviewPlugin] Network unavailable", err);
+        store.projectId = auth.projectId;
+
+        const savedImgs = data.hasSavedJson ? (data.jsonPayload?.images || []) : [];
+        const rawDbImgs = data.images || [];
+        const mergedImgsMap = new Map<string, any>();
+        savedImgs.forEach((img: any) => { if (img?.id) mergedImgsMap.set(String(img.id), img); });
+        rawDbImgs.forEach((img: any) => { if (img?.id) mergedImgsMap.set(String(img.id), img); });
+        const dbImgs = Array.from(mergedImgsMap.values());
+
+        if (isFocusEvent) {
+          const currentIds = new Set(store.images.map((img) => String(img.id)));
+          const newImgs = dbImgs.filter((img: any) => img?.id && !currentIds.has(String(img.id)));
+          if (newImgs.length > 0) {
+            console.log(`[ReviewPlugin] Soft refresh: Merged ${newImgs.length} new images into tray.`);
+            store.images.push(...newImgs);
+            store.appendDefaultPagesForImages(newImgs);
           }
-
-          // Even with a DB profile, check for unsaved roaming session data from the Scene transition
-          const localSnapshot = await loadLatestSnapshotFromIdb();
-
-          if (dbData) {
-            // Unify image lists to ensure we don't drop older saved images or new unappended DB captures
-            const savedImgs = dbData.hasSavedJson ? (dbData.jsonPayload?.images || []) : [];
-            const rawDbImgs = dbData.images || [];
-            const mergedImgsMap = new Map();
-            savedImgs.forEach((img: any) => { if (img.id) mergedImgsMap.set(img.id, img); });
-            rawDbImgs.forEach((img: any) => { if (img.id) mergedImgsMap.set(img.id, img); });
-            const dbImgs = Array.from(mergedImgsMap.values());
-            
-            // 1. Soft Refresh: Tab Focus without a pending IDB handoff.
-            if (isFocusEvent && !localSnapshot) {
-              const currentIds = new Set(store.images.map(img => img.id));
-              const newImgs = dbImgs.filter((img: any) => img.id && !currentIds.has(img.id));
-              if (newImgs.length > 0) {
-                console.log(`[ReviewPlugin] Soft refresh: Merged ${newImgs.length} new images into tray.`);
-                store.images.push(...newImgs);
-                store.appendDefaultPagesForImages(newImgs);
-              }
-              return; // Skip full layout reset
-            }
-
-            // 2. IDB Handoff: Returning from Scene with unsaved edits.
-            if (localSnapshot && localSnapshot.images) {
-              console.log("[ReviewPlugin] Found unsaved local IDB payload, bypassing raw DB load.");
-              // Merge any new DB images (the newly captured scene) into the local snapshot
-              const localIds = new Set(localSnapshot.images.map((img: any) => img.id));
-              const newImgs = dbImgs.filter((img: any) => img.id && !localIds.has(img.id));
-              if (newImgs.length > 0) {
-                console.log(`[ReviewPlugin] Merging ${newImgs.length} fresh DB captures into IDB session limits.`);
-                localSnapshot.images.unshift(...newImgs); // Put new images at the top
-              }
-              store.importSnapshot(localSnapshot);
-              if (newImgs.length > 0) {
-                store.appendDefaultPagesForImages(newImgs);
-              }
-            } else {
-              // 3. Hard DB Load (Initial Mount with no IDB cache)
-              if (dbData.hasSavedJson) {
-                store.importSnapshot({
-                  ...dbData.jsonPayload,
-                  images: dbImgs
-                });
-                
-                // Now that the saved layout is restored, dynamically append any newly discovered captures
-                const usedIds = new Set(dbData.jsonPayload.images?.map((i: any) => i.id) || []);
-                const brandNewImgs = dbImgs.filter((img: any) => img.id && !usedIds.has(img.id));
-                if (brandNewImgs.length > 0) {
-                  store.appendDefaultPagesForImages(brandNewImgs);
-                }
-              } else {
-                store.importSnapshot({ images: dbImgs, pages: [] });
-              }
-            }
-          } else if (localSnapshot && localSnapshot.images.length > 0) {
-             store.importSnapshot(localSnapshot);
-          }
-
-          await clearLatestSnapshotFromIdb(); // clear stale Local IDB
           return;
         }
 
-        if (hasUrlSnapshot) {
-          // Prefer URL-passed snapshot; clear any stale IDB payload.
-          await clearLatestSnapshotFromIdb();
-          return;
+        if (data.hasSavedJson && data.jsonPayload) {
+          store.importSnapshot({
+            ...data.jsonPayload,
+            images: dbImgs
+          });
+
+          const usedIds = new Set((data.jsonPayload.images || []).map((i: any) => String(i?.id || "")));
+          const brandNewImgs = dbImgs.filter((img: any) => img?.id && !usedIds.has(String(img.id)));
+          if (brandNewImgs.length > 0) {
+            store.appendDefaultPagesForImages(brandNewImgs);
+          }
+        } else {
+          store.importSnapshot({ images: dbImgs, pages: [] });
         }
-        const snapshot = await loadLatestSnapshotFromIdb();
-        if (!snapshot) return;
-        console.log("[ReviewPlugin] Loaded snapshot from IndexedDB:", snapshot);
-        store.importSnapshot(snapshot);
-        await clearLatestSnapshotFromIdb();
       } catch (error) {
-        console.warn("[ReviewPlugin] Failed loading snapshot from Backend/IndexedDB", error);
+        console.warn("[ReviewPlugin] Failed loading snapshot from backend", error);
       }
     };
 
-    // Refreshes state when the tab becomes active again (helps with Scene round-trips).
     const handleFocusOrVisible = () => {
-      if (document.visibilityState === "visible") loadData(true);
+      if (document.visibilityState === "visible") void loadFromBackend(true);
     };
 
     window.addEventListener("focus", handleFocusOrVisible);
     document.addEventListener("visibilitychange", handleFocusOrVisible);
 
-    // Initial load — runs once on mount
-    loadData(false);
+    void loadFromBackend(false);
 
-    // Exposes a minimal API on `window` so the host app can control this editor instance.
     const api: ReviewPluginApi = {
       load(snapshot) {
         return store.importSnapshot(snapshot);
@@ -145,9 +95,6 @@ export function PluginBridge() {
       downloadJson() {
         downloadSnapshotJson(store.toDocumentSnapshot());
       },
-      saveToSession() {
-        return store.saveSnapshot();
-      }
     };
 
     (window as Window & { __REVIEW_PLUGIN_API__?: ReviewPluginApi }).__REVIEW_PLUGIN_API__ = api;
@@ -172,6 +119,7 @@ export function PluginBridge() {
     window.addEventListener("message", onMessage);
 
     return () => {
+      cancelled = true;
       window.removeEventListener("focus", handleFocusOrVisible);
       document.removeEventListener("visibilitychange", handleFocusOrVisible);
       window.removeEventListener("message", onMessage);
@@ -181,7 +129,7 @@ export function PluginBridge() {
         (window as Window & { __REVIEW_PLUGIN_API__?: ReviewPluginApi }).__REVIEW_PLUGIN_API__ = undefined;
       }
     };
-  }, [store]);
+  }, [store, auth.projectId, auth.closetId, auth.token]);
 
   return null;
 }

@@ -6,8 +6,8 @@ import { ExportTab } from "./components/editor/ExportTab";
 import { PluginBridge } from "./integration/PluginBridge";
 import { saveClosetSnapshot } from "./api/backend";
 import { useStore } from "./state/Root";
-import { saveLatestSnapshotToIdb } from "./utils/idbSnapshotTransport";
 import { getSceneUrlBase } from "./config/env";
+import { readAuthContextFromUrl } from "./auth";
 import type { AppTab, TabId } from "./types";
 
 // Top-level navigation tabs for the app shell.
@@ -19,6 +19,21 @@ const tabs: AppTab[] = [
 export default function App() {
   const store = useStore();
   const [activeTab, setActiveTab] = useState<TabId>("editor");
+  const authResult = readAuthContextFromUrl();
+
+  if (!authResult.ok) {
+    return (
+      <div className="app-shell">
+        <Toaster position="top-center" />
+        <main className="content full-width" style={{ padding: 24 }}>
+          <h2 style={{ margin: 0 }}>Access denied</h2>
+          <p style={{ marginTop: 12 }}>{authResult.error}</p>
+        </main>
+      </div>
+    );
+  }
+
+  const auth = authResult.ctx;
 
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
   const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label || "Scene";
@@ -36,20 +51,14 @@ export default function App() {
     setActiveTab(tabs[prevIndex].id);
   };
 
-  // Saves a snapshot to IDB and redirects to the Scene app for capture/editing.
+  // Redirects to the Scene app for capture/editing.
   const goToSceneForCapture = () => {
     try {
-      const snapshot = store.toDocumentSnapshot();
-      void saveLatestSnapshotToIdb(snapshot).then(() => {
-        const sceneUrlBase = getSceneUrlBase();
-        const sep = sceneUrlBase.includes("?") ? "&" : "?";
-        const editorUrl = encodeURIComponent(window.location.origin + window.location.pathname);
-        const params = new URLSearchParams(window.location.search);
-        const projectId = params.get("projectId") || store.projectId;
-        const closetId = params.get("closetId") || "";
-
-        window.location.href = `${sceneUrlBase}${sep}projectId=${projectId}&closetId=${closetId}`;
-      });
+      const sceneUrlBase = getSceneUrlBase();
+      const sep = sceneUrlBase.includes("?") ? "&" : "?";
+      const editorUrl = encodeURIComponent(window.location.origin + window.location.pathname);
+      window.location.href =
+        `${sceneUrlBase}${sep}projectId=${encodeURIComponent(auth.projectId)}&closetId=${encodeURIComponent(auth.closetId)}&editorUrl=${editorUrl}`;
     } catch (error) {
       console.warn("[ReviewPlugin] Failed to redirect to scene", error);
       toast.error("Failed to open scene.");
@@ -58,7 +67,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <PluginBridge />
+      <PluginBridge auth={auth} />
       <Toaster position="top-center" />
       <header className="topbar">
         <div className="brand">
@@ -86,27 +95,17 @@ export default function App() {
                 className="pill-item"
                 onClick={async () => {
                   // Saves locally by default, or saves to backend when embedded with project/closet params.
-                  const saved = store.saveSnapshot();
                   try {
                     const snapshot = store.toDocumentSnapshot();
                     console.log("[Save] Snapshot built:", { pages: snapshot.pages?.length, images: snapshot.images?.length });
                     
-                    const params = new URLSearchParams(window.location.search);
-                    const projectId = params.get("projectId");
-                    const closetId = params.get("closetId");
-                    
-                    if (projectId && closetId) {
-                      const res = await saveClosetSnapshot(projectId, closetId, snapshot);
-                      if (res.ok) {
-                        toast.success("Saved to Datastore!");
-                      } else {
-                        const errText = await res.text();
-                        console.error("[Save] Backend error:", res.status, errText);
-                        toast.error(`Save failed: ${res.status}`);
-                      }
+                    const res = await saveClosetSnapshot(auth.projectId, auth.closetId, snapshot, auth.token);
+                    if (res.ok) {
+                      toast.success("Saved to Datastore!");
                     } else {
-                      void saveLatestSnapshotToIdb(snapshot);
-                      if (saved) toast.success("Data saved locally.");
+                      const errText = await res.text();
+                      console.error("[Save] Backend error:", res.status, errText);
+                      toast.error(`Save failed: ${res.status}`);
                     }
                   } catch (error) {
                     console.error("[Save] Exception:", error);

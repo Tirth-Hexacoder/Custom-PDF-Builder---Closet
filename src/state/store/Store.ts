@@ -9,8 +9,6 @@ import type {
 } from "../../types";
 import { buildDocumentSnapshot, rebuildPagesFromSnapshot } from "../../utils/downloadTab/documentAdapter";
 
-const SESSION_DOC_KEY = "review_plugin_document_snapshot_v1";
-
 export class Store {
   projectId = "";
   projectName = "";
@@ -24,17 +22,9 @@ export class Store {
   pages: Page[] = [];
   activePageId: string | null = null;
 
-  // Boot order prefers provided document, then session restore, then default JSON bootstrap.
   // Load Initial Setup
-  constructor(initialDocument?: ProposalDocumentSnapshot | null) {
+  constructor() {
     makeAutoObservable(this);
-    const sessionDocument = this.readSessionSnapshot();
-    if (initialDocument && this.loadSnapshot(initialDocument)) {
-      return;
-    }
-    if (sessionDocument && this.loadSnapshot(sessionDocument)) {
-      return;
-    }
     const firstPage: Page = {
       id: crypto.randomUUID(),
       name: "Page 1",
@@ -42,32 +32,6 @@ export class Store {
     };
     this.pages = [firstPage];
     this.activePageId = firstPage.id;
-  }
-
-  private readSessionSnapshot() {
-    if (typeof window === "undefined" || !window.sessionStorage) return null;
-    const raw = window.sessionStorage.getItem(SESSION_DOC_KEY);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as ProposalDocumentSnapshot;
-    } catch {
-      return null;
-    }
-  }
-
-  private persistSessionSnapshot() {
-    if (typeof window === "undefined" || !window.sessionStorage) return false;
-    const snapshot = this.toDocumentSnapshot();
-    window.sessionStorage.setItem(SESSION_DOC_KEY, JSON.stringify(snapshot));
-    return true;
-  }
-
-  saveSnapshot() {
-    try {
-      return this.persistSessionSnapshot();
-    } catch {
-      return false;
-    }
   }
 
   loadSnapshot(snapshot: ProposalDocumentSnapshot) {

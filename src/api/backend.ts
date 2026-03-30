@@ -3,6 +3,11 @@ import { API_BASE_URL } from "../config/env";
 
 type FetchOptions = Omit<RequestInit, "body" | "method">;
 
+function buildAuthHeaders(token?: string): Record<string, string> {
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 // Removes any trailing slashes so URL joining behaves consistently.
 function normalizeBaseUrl(value: string) {
   return value.replace(/\/+$/, "");
@@ -46,10 +51,10 @@ export async function fetchCloset(projectId: string, closetId: string, options: 
 }
 
 // Persists the current document snapshot for a closet.
-export async function saveClosetSnapshot(projectId: string, closetId: string, snapshot: ProposalDocumentSnapshot) {
+export async function saveClosetSnapshot(projectId: string, closetId: string, snapshot: ProposalDocumentSnapshot, token?: string) {
   const res = await apiFetch(`${buildClosetPath(projectId, closetId)}/save`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...buildAuthHeaders(token) },
     body: JSON.stringify({ jsonPayload: snapshot })
   });
   return res;
@@ -60,7 +65,8 @@ export async function exportClosetPdf(
   projectId: string,
   closetId: string,
   snapshot: ProposalDocumentSnapshot,
-  pdfBlob: Blob
+  pdfBlob: Blob,
+  token?: string
 ) {
   const formData = new FormData();
   formData.append("jsonPayload", JSON.stringify(snapshot));
@@ -68,6 +74,7 @@ export async function exportClosetPdf(
 
   const res = await apiFetch(`${buildClosetPath(projectId, closetId)}/export`, {
     method: "POST",
+    headers: buildAuthHeaders(token),
     body: formData
   });
   return res;
