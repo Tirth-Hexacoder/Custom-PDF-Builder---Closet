@@ -4,10 +4,13 @@ import toast from "react-hot-toast";
 import { EditorTab } from "./components/editor/EditorTab";
 import { ExportTab } from "./components/editor/ExportTab";
 import { PluginBridge } from "./integration/PluginBridge";
+import { saveClosetSnapshot } from "./api/backend";
 import { useStore } from "./state/Root";
 import { saveLatestSnapshotToIdb } from "./utils/idbSnapshotTransport";
+import { getSceneUrlBase } from "./config/env";
 import type { AppTab, TabId } from "./types";
 
+// Top-level navigation tabs for the app shell.
 const tabs: AppTab[] = [
   { id: "editor", label: "Editor" },
   { id: "download", label: "Download" }
@@ -20,25 +23,25 @@ export default function App() {
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
   const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label || "Scene";
 
+  // Moves forward one tab (clamped to the last tab).
   const goNext = () => {
     const nextIndex = Math.min(activeIndex + 1, tabs.length - 1);
     const nextTab = tabs[nextIndex].id;
     setActiveTab(nextTab);
   };
 
+  // Moves back one tab (clamped to the first tab).
   const goPrev = () => {
     const prevIndex = Math.max(activeIndex - 1, 0);
     setActiveTab(tabs[prevIndex].id);
   };
 
+  // Saves a snapshot to IDB and redirects to the Scene app for capture/editing.
   const goToSceneForCapture = () => {
     try {
       const snapshot = store.toDocumentSnapshot();
       void saveLatestSnapshotToIdb(snapshot).then(() => {
-        const sceneUrlBase =
-          window.sessionStorage?.getItem("review_plugin_scene_url") ||
-          (import.meta as any).env?.VITE_SCENE_URL ||
-          "http://localhost:5174/";
+        const sceneUrlBase = getSceneUrlBase();
         const sep = sceneUrlBase.includes("?") ? "&" : "?";
         const editorUrl = encodeURIComponent(window.location.origin + window.location.pathname);
         const params = new URLSearchParams(window.location.search);
@@ -82,6 +85,7 @@ export default function App() {
               <button
                 className="pill-item"
                 onClick={async () => {
+                  // Saves locally by default, or saves to backend when embedded with project/closet params.
                   const saved = store.saveSnapshot();
                   try {
                     const snapshot = store.toDocumentSnapshot();
@@ -92,11 +96,7 @@ export default function App() {
                     const closetId = params.get("closetId");
                     
                     if (projectId && closetId) {
-                      const res = await fetch(`http://localhost:4000/api/project/${projectId}/closet/${closetId}/save`, {
-                         method: "POST",
-                         headers: { "Content-Type": "application/json" },
-                         body: JSON.stringify({ jsonPayload: snapshot })
-                      });
+                      const res = await saveClosetSnapshot(projectId, closetId, snapshot);
                       if (res.ok) {
                         toast.success("Saved to Datastore!");
                       } else {

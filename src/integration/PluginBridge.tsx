@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useStore } from "../state/Root";
 import type { ProposalDocumentSnapshot } from "../types";
+import { fetchCloset } from "../api/backend";
 import { downloadSnapshotJson, exportStoreAsPdf } from "../utils/downloadTab/documentAdapter";
 import { clearLatestSnapshotFromIdb, loadLatestSnapshotFromIdb } from "../utils/idbSnapshotTransport";
 
@@ -21,6 +22,7 @@ export function PluginBridge() {
     const params = new URLSearchParams(window.location.search);
     const hasUrlSnapshot = !!(params.get("data") || params.get("snapshot"));
 
+    // Loads editor data from backend/URL/IndexedDB based on the embedding context.
     const loadData = async (isFocusEvent = false) => {
       try {
         const projectId = params.get("projectId");
@@ -30,18 +32,12 @@ export function PluginBridge() {
           if (!isFocusEvent) console.log("[ReviewPlugin] Fetching network project state...");
           let dbData = null;
           try {
-            const res = await fetch(`http://localhost:4000/api/project/${projectId}/closet/${closetId}`, {
-              cache: "no-store",
-              headers: {
-                "Pragma": "no-cache",
-                "Cache-Control": "no-cache"
+            const res = await fetchCloset(projectId, closetId);
+              if (res.ok) {
+                const data = await res.json();
+                if (data.success) dbData = data;
               }
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.success) dbData = data;
-            }
-          } catch (err) {
+            } catch (err) {
             console.warn("[ReviewPlugin] Network unavailable", err);
           }
 
@@ -124,6 +120,7 @@ export function PluginBridge() {
       }
     };
 
+    // Refreshes state when the tab becomes active again (helps with Scene round-trips).
     const handleFocusOrVisible = () => {
       if (document.visibilityState === "visible") loadData(true);
     };
@@ -134,6 +131,7 @@ export function PluginBridge() {
     // Initial load — runs once on mount
     loadData(false);
 
+    // Exposes a minimal API on `window` so the host app can control this editor instance.
     const api: ReviewPluginApi = {
       load(snapshot) {
         return store.importSnapshot(snapshot);

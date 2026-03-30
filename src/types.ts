@@ -1,5 +1,6 @@
 import type { fabric } from 'fabric';
 
+// Shared app-wide TypeScript types for documents, images, and editor plumbing.
 export type FabricJSON = Record<string, unknown> | null;
 
 export type Page = {

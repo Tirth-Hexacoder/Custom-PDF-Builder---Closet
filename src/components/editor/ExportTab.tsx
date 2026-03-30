@@ -1,12 +1,13 @@
 import { observer } from "mobx-react-lite";
 import toast from "react-hot-toast";
 import { useStore } from "../../state/Root";
+import { exportClosetPdf } from "../../api/backend";
 import { downloadSnapshotJson, exportStoreAsPdf } from "../../utils/downloadTab/documentAdapter";
 
 export const ExportTab = observer(function ExportTab() {
   const store = useStore();
 
-  // Export PDF
+  // Builds the PDF from the current editor state and optionally syncs it to the backend.
   const exportPDF = async () => {
     try {
       const snapshot = store.toDocumentSnapshot();
@@ -18,14 +19,7 @@ export const ExportTab = observer(function ExportTab() {
       const closetId = params.get("closetId");
       
       if (projectId && closetId && pdfBlob) {
-          const formData = new FormData();
-          formData.append("jsonPayload", JSON.stringify(snapshot));
-          formData.append("pdf", pdfBlob, "export.pdf");
-          
-          const res = await fetch(`http://localhost:4000/api/project/${projectId}/closet/${closetId}/export`, {
-             method: "POST",
-             body: formData
-          });
+          const res = await exportClosetPdf(projectId, closetId, snapshot, pdfBlob);
           if (res.ok) toast.success("PDF synced to server successfully!");
       }
     } catch (err) {
@@ -34,7 +28,7 @@ export const ExportTab = observer(function ExportTab() {
     }
   };
 
-  // Save current working snapshot into session storage.
+  // Saves the current working snapshot into session storage.
   const saveSnapshot = () => {
     const saved = store.saveSnapshot();
     if (saved) toast.success("Changes saved.");
@@ -43,7 +37,7 @@ export const ExportTab = observer(function ExportTab() {
 
   return (
 
-    // Project Data Showing
+    // Project data preview used for template placeholders.
     <section className="scene-layout">
       <div className="panel">
         <h3 className="panel-title">Download & Export</h3>
