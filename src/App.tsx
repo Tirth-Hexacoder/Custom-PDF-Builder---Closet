@@ -93,6 +93,13 @@ export default function App() {
             <>
               <button
                 className="pill-item"
+                onClick={() => window.dispatchEvent(new CustomEvent("pdf-builder:import"))}
+                type="button"
+              >
+                <span className="pill-text">Import</span>
+              </button>
+              <button
+                className="pill-item"
                 onClick={async () => {
                   // Saves locally by default, or saves to backend when embedded with project/closet params.
                   try {

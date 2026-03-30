@@ -84,6 +84,7 @@ export type FabricCanvasHandle = {
   setOpacity: (opacity: number) => void;
   alignObjects: (align: "left" | "center" | "right") => void;
   addImage: (dataUrl: string) => void;
+  addShape: (shape: "rect" | "circle" | "triangle" | "line") => void;
   copy: () => void;
   paste: () => void;
   duplicate: () => void;
@@ -97,12 +98,27 @@ export type FabricCanvasHandle = {
   setImageCropMode: (enabled: boolean) => void;
   deleteActive: () => void;
   getPageImage: () => Promise<string>;
+  getPageHierarchy: () => {
+    items: Array<{
+      key: string;
+      label: string;
+      objectType: string;
+      visible: boolean;
+      locked: boolean;
+      canDelete: boolean;
+    }>;
+    selectedKeys: string[];
+  };
+  selectHierarchyItem: (key: string) => void;
+  toggleHierarchyItemVisibility: (key: string) => void;
+  deleteHierarchyItem: (key: string) => void;
 };
 
 export type FabricCanvasProps = {
   page?: Page;
   onPageChange: (pageId: string, json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
+  onCanvasChange?: () => void;
   onTextSelectionChange?: (state: {
     bold: boolean;
     italic: boolean;
@@ -143,6 +159,7 @@ export type CreateCanvasOptions = {
   page?: Page;
   onPageChange: (pageId: string, json: FabricJSON) => void;
   onReady?: (ready: boolean) => void;
+  onCanvasChange?: () => void;
   onTextSelectionChange?: (state: {
     bold: boolean;
     italic: boolean;
@@ -258,7 +275,9 @@ export type ReviewTextItem = ReviewItemBase & {
 
 export type ReviewShapeItem = ReviewItemBase & {
   type: "shape";
-  shape: "rect";
+  shape: "rect" | "circle" | "triangle" | "line";
+  radius?: number;
+  points?: { x1: number; y1: number; x2: number; y2: number };
   style?: {
     fill?: string;
     stroke?: string;

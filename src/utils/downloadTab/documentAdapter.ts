@@ -180,6 +180,76 @@ function reviewItemsFromFabricJson(json: FabricJSON, imageIdByUrl: Map<string, s
           ry: typeof obj.ry === "number" ? obj.ry : undefined
         }
       });
+      return;
+    }
+
+    if (type === "circle") {
+      items.push({
+        itemId,
+        type: "shape",
+        shape: "circle",
+        position,
+        size,
+        rotation,
+        scale,
+        opacity,
+        locked,
+        hidden,
+        radius: typeof (obj as any).radius === "number" ? (obj as any).radius : undefined,
+        style: {
+          fill: asString(obj.fill) || undefined,
+          stroke: asString(obj.stroke) || undefined,
+          strokeWidth: typeof obj.strokeWidth === "number" ? obj.strokeWidth : undefined
+        }
+      });
+      return;
+    }
+
+    if (type === "triangle") {
+      items.push({
+        itemId,
+        type: "shape",
+        shape: "triangle",
+        position,
+        size,
+        rotation,
+        scale,
+        opacity,
+        locked,
+        hidden,
+        style: {
+          fill: asString(obj.fill) || undefined,
+          stroke: asString(obj.stroke) || undefined,
+          strokeWidth: typeof obj.strokeWidth === "number" ? obj.strokeWidth : undefined
+        }
+      });
+      return;
+    }
+
+    if (type === "line") {
+      items.push({
+        itemId,
+        type: "shape",
+        shape: "line",
+        position,
+        size,
+        rotation,
+        scale,
+        opacity,
+        locked,
+        hidden,
+        points: {
+          x1: asNumber((obj as any).x1, 0),
+          y1: asNumber((obj as any).y1, 0),
+          x2: asNumber((obj as any).x2, size.width || 0),
+          y2: asNumber((obj as any).y2, 0)
+        },
+        style: {
+          stroke: asString(obj.stroke) || undefined,
+          strokeWidth: typeof obj.strokeWidth === "number" ? obj.strokeWidth : undefined
+        }
+      });
+      return;
     }
   });
 
@@ -297,6 +367,102 @@ function fabricJsonFromReviewItems(items: ReviewItem[], imagesById: Map<string, 
         lockScalingY: !!item.locked,
         lockRotation: !!item.locked
       });
+      return;
+    }
+
+    if (item.type === "shape" && item.shape === "circle") {
+      const radius = typeof item.radius === "number" ? item.radius : Math.max(1, (item.size.width || 0) / 2);
+      objects.push({
+        type: "circle",
+        left: item.position.x,
+        top: item.position.y,
+        radius,
+        scaleX: item.scale?.x ?? 1,
+        scaleY: item.scale?.y ?? 1,
+        angle: item.rotation ?? 0,
+        opacity: item.opacity ?? 1,
+        visible: item.hidden ? false : true,
+        fill: item.style?.fill ?? "rgba(0,0,0,0)",
+        stroke: item.style?.stroke ?? "#111827",
+        strokeWidth: item.style?.strokeWidth ?? 2,
+        data: {
+          reviewItemId: item.itemId,
+          userLocked: !!item.locked
+        },
+        selectable: !item.locked,
+        evented: !item.locked,
+        hasControls: !item.locked,
+        lockMovementX: !!item.locked,
+        lockMovementY: !!item.locked,
+        lockScalingX: !!item.locked,
+        lockScalingY: !!item.locked,
+        lockRotation: !!item.locked
+      });
+      return;
+    }
+
+    if (item.type === "shape" && item.shape === "triangle") {
+      objects.push({
+        type: "triangle",
+        left: item.position.x,
+        top: item.position.y,
+        width: item.size.width,
+        height: item.size.height,
+        scaleX: item.scale?.x ?? 1,
+        scaleY: item.scale?.y ?? 1,
+        angle: item.rotation ?? 0,
+        opacity: item.opacity ?? 1,
+        visible: item.hidden ? false : true,
+        fill: item.style?.fill ?? "rgba(0,0,0,0)",
+        stroke: item.style?.stroke ?? "#111827",
+        strokeWidth: item.style?.strokeWidth ?? 2,
+        data: {
+          reviewItemId: item.itemId,
+          userLocked: !!item.locked
+        },
+        selectable: !item.locked,
+        evented: !item.locked,
+        hasControls: !item.locked,
+        lockMovementX: !!item.locked,
+        lockMovementY: !!item.locked,
+        lockScalingX: !!item.locked,
+        lockScalingY: !!item.locked,
+        lockRotation: !!item.locked
+      });
+      return;
+    }
+
+    if (item.type === "shape" && item.shape === "line") {
+      const points = item.points || { x1: 0, y1: 0, x2: item.size.width || 160, y2: 0 };
+      objects.push({
+        type: "line",
+        left: item.position.x,
+        top: item.position.y,
+        x1: points.x1,
+        y1: points.y1,
+        x2: points.x2,
+        y2: points.y2,
+        scaleX: item.scale?.x ?? 1,
+        scaleY: item.scale?.y ?? 1,
+        angle: item.rotation ?? 0,
+        opacity: item.opacity ?? 1,
+        visible: item.hidden ? false : true,
+        stroke: item.style?.stroke ?? "#111827",
+        strokeWidth: item.style?.strokeWidth ?? 2,
+        data: {
+          reviewItemId: item.itemId,
+          userLocked: !!item.locked
+        },
+        selectable: !item.locked,
+        evented: !item.locked,
+        hasControls: !item.locked,
+        lockMovementX: !!item.locked,
+        lockMovementY: !!item.locked,
+        lockScalingX: !!item.locked,
+        lockScalingY: !!item.locked,
+        lockRotation: !!item.locked
+      });
+      return;
     }
   });
 

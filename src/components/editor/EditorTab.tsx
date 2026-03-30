@@ -56,6 +56,10 @@ export const EditorTab = observer(function EditorTab() {
   const [zoomPercent, setZoomPercent] = useState(100);
   const [pageInput, setPageInput] = useState("1");
   const [fitMode, setFitMode] = useState<"none" | "width" | "height">("none");
+  const [hierarchy, setHierarchy] = useState<ReturnType<FabricCanvasHandle["getPageHierarchy"]>>({
+    items: [],
+    selectedKeys: []
+  });
   const { importInputRef, triggerImportPicker, onImportJsonFile } = useSnapshotImport(store);
 
   const activePage = store.pages.find((p) => p.id === store.activePageId) || store.pages[0];
@@ -83,6 +87,12 @@ export const EditorTab = observer(function EditorTab() {
   const setManualZoom = (next: number) => {
     setFitMode("none");
     setZoomPercent(clampZoom(next));
+  };
+
+  const refreshHierarchy = () => {
+    const api = canvasRef.current;
+    if (!api) return;
+    setHierarchy(api.getPageHierarchy());
   };
 
   const goToPageFromInput = () => {
@@ -228,6 +238,12 @@ export const EditorTab = observer(function EditorTab() {
     return () => stopAutoScroll();
   }, []);
 
+  useEffect(() => {
+    const onImport = () => triggerImportPicker();
+    window.addEventListener("pdf-builder:import", onImport as EventListener);
+    return () => window.removeEventListener("pdf-builder:import", onImport as EventListener);
+  }, [triggerImportPicker]);
+
   return (
     <div className="editor-container">
       <div className="editor-toolbar">
@@ -239,6 +255,21 @@ export const EditorTab = observer(function EditorTab() {
             <i className="fa-solid fa-font"></i>
             <span>Text</span>
           </button>
+
+          <div className="toolbar-group shape-tools-group" role="group" aria-label="Shapes">
+            <button className="tool-btn icon-only" onClick={() => canvasRef.current?.addShape("rect")} title="Rectangle">
+              <i className="fa-regular fa-square"></i>
+            </button>
+            <button className="tool-btn icon-only" onClick={() => canvasRef.current?.addShape("circle")} title="Circle">
+              <i className="fa-regular fa-circle"></i>
+            </button>
+            <button className="tool-btn icon-only" onClick={() => canvasRef.current?.addShape("triangle")} title="Triangle">
+              <i className="fa-solid fa-play" style={{ transform: "rotate(-90deg)" }}></i>
+            </button>
+            <button className="tool-btn icon-only" onClick={() => canvasRef.current?.addShape("line")} title="Line">
+              <i className="fa-solid fa-minus"></i>
+            </button>
+          </div>
 
           <button
             className={`tool-btn ${isCropMode ? "active" : ""}`}
@@ -436,10 +467,6 @@ export const EditorTab = observer(function EditorTab() {
 
           <div className="toolbar-divider"></div>
 
-          <button className="tool-btn" onClick={triggerImportPicker} title="Import JSON Snapshot">
-            <i className="fa-solid fa-file-arrow-up"></i>
-            <span>Import</span>
-          </button>
           <input
             ref={importInputRef}
             type="file"
@@ -686,12 +713,15 @@ export const EditorTab = observer(function EditorTab() {
             >
 
               {/* Actual Canvas (Page) */}
-              <FabricCanvas
-                ref={canvasRef}
-                page={activePage}
-                onReady={setCanvasReady}
-                onPageChange={(pageId, json) => store.setPageFabricJSON(pageId, json)}
-                onTextSelectionChange={(state) => {
+                <FabricCanvas
+                  ref={canvasRef}
+                  page={activePage}
+                  onReady={setCanvasReady}
+                  onPageChange={(pageId, json) => store.setPageFabricJSON(pageId, json)}
+                  onCanvasChange={() => {
+                    if (hasSelection) refreshHierarchy();
+                  }}
+                  onTextSelectionChange={(state) => {
                   setIsBold(state.bold);
                   setIsItalic(state.italic);
                   setIsUnderline(state.underline);
@@ -701,7 +731,8 @@ export const EditorTab = observer(function EditorTab() {
                   setSelectedOpacity(state.opacity || 1);
                   setHasSelection(state.hasSelection);
                   setCanEditTextStyle(state.canEditTextStyle);
-                }}
+                  if (state.hasSelection) refreshHierarchy();
+                  }}
                 headerText="Modular Closets Renderings"
                 headerProjectName={store.projectName}
                 headerCustomerName={store.customerName}
@@ -717,25 +748,80 @@ export const EditorTab = observer(function EditorTab() {
         </div>
 
         <aside className="image-tray">
-          <div className="image-tray-header">IMAGES</div>
-          <div className="image-tray-list">
-            {trayImages.map((url, index) => (
-              <div
-                key={`${url}-${index}`}
-                className="image-tray-item"
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(IMAGE_DRAG_MIME, url);
-                  e.dataTransfer.effectAllowed = "copy";
-                }}
-              >
-                <img src={url} alt={`Asset ${index + 1}`} className="image-tray-thumb" loading="lazy" />
+          {!hasSelection ? (
+            <>
+              <div className="image-tray-header">IMAGES</div>
+              <div className="image-tray-list">
+                {trayImages.map((url, index) => (
+                  <div
+                    key={`${url}-${index}`}
+                    className="image-tray-item"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(IMAGE_DRAG_MIME, url);
+                      e.dataTransfer.effectAllowed = "copy";
+                    }}
+                  >
+                    <img src={url} alt={`Asset ${index + 1}`} className="image-tray-thumb" loading="lazy" />
+                  </div>
+                ))}
+                {trayImages.length === 0 && (
+                  <div className="image-tray-empty">No images</div>
+                )}
               </div>
-            ))}
-            {trayImages.length === 0 && (
-              <div className="image-tray-empty">No images</div>
-            )}
-          </div>
+            </>
+          ) : (
+            <>
+              <div className="image-tray-header">HIERARCHY</div>
+              <div className="hierarchy-list">
+                {hierarchy.items.map((item) => {
+                  const isSelected = hierarchy.selectedKeys.includes(item.key);
+                  return (
+                    <div
+                      key={item.key}
+                      className={`hierarchy-row ${isSelected ? "active" : ""}`}
+                      onClick={() => canvasRef.current?.selectHierarchyItem(item.key)}
+                      role="button"
+                      tabIndex={0}
+                      title={item.label}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") canvasRef.current?.selectHierarchyItem(item.key);
+                      }}
+                    >
+                      <span className="hierarchy-label">{item.label}</span>
+                      <span className="hierarchy-actions">
+                        <button
+                          type="button"
+                          className="hierarchy-icon-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            canvasRef.current?.toggleHierarchyItemVisibility(item.key);
+                            refreshHierarchy();
+                          }}
+                          title={item.visible ? "Hide" : "Show"}
+                        >
+                          <i className={`fa-solid ${item.visible ? "fa-eye" : "fa-eye-slash"}`}></i>
+                        </button>
+                        <button
+                          type="button"
+                          className="hierarchy-icon-btn danger"
+                          disabled={!item.canDelete}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            canvasRef.current?.deleteHierarchyItem(item.key);
+                            refreshHierarchy();
+                          }}
+                          title={item.canDelete ? "Delete" : "Locked"}
+                        >
+                          <i className="fa-solid fa-trash-can"></i>
+                        </button>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </aside>
 
       </div>

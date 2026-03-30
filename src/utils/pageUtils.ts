@@ -155,6 +155,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     page,
     onPageChange,
     onReady,
+    onCanvasChange,
     headerText: headerTextInput,
     headerProjectName: headerProjectNameInput,
     headerCustomerName: headerCustomerNameInput,
@@ -177,6 +178,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
   let onPageChangeRef = onPageChange;
   let onReadyRef = onReady;
   let onTextSelectionChangeRef = options.onTextSelectionChange;
+  let onCanvasChangeRef = onCanvasChange;
 
   // Interactive Fabric canvas used by EditorTab for per-page editing.
   const canvas = new fabric.Canvas(host, {
@@ -1230,6 +1232,59 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     }
   }
 
+  function getHierarchyKey(obj: fabric.Object) {
+    const decorId = obj?.data?.id;
+    if (typeof decorId === "string" && decorId) return `decor:${decorId}`;
+    const reviewItemId = (obj?.data as any)?.reviewItemId;
+    if (typeof reviewItemId === "string" && reviewItemId) return `item:${reviewItemId}`;
+    const idx = canvas.getObjects().indexOf(obj);
+    return `obj:${idx >= 0 ? idx : crypto.randomUUID()}`;
+  }
+
+  function findHierarchyObject(key: string) {
+    if (!key) return null;
+    if (key.startsWith("decor:")) {
+      const id = key.slice("decor:".length);
+      return canvas.getObjects().find((obj) => obj?.data?.id === id) || null;
+    }
+    if (key.startsWith("item:")) {
+      const id = key.slice("item:".length);
+      return canvas.getObjects().find((obj) => (obj?.data as any)?.reviewItemId === id) || null;
+    }
+    if (key.startsWith("obj:")) {
+      const idx = Number(key.slice("obj:".length));
+      if (Number.isFinite(idx)) {
+        return canvas.getObjects()[Math.max(0, Math.min(canvas.getObjects().length - 1, idx))] || null;
+      }
+    }
+    return null;
+  }
+
+  function objectLabel(obj: fabric.Object) {
+    const decorId = obj?.data?.id;
+    if (typeof decorId === "string") {
+      if (decorId === "fixed-header") return "Header";
+      if (decorId === "fixed-footer") return "Footer";
+      if (decorId === "fixed-stamp") return "Stamp";
+      if (decorId === "fixed-date") return "Date";
+      if (decorId === "fixed-page-number") return "Page Number";
+      if (decorId === "designer-contact-info") return "Designer Contact";
+      return `Decoration (${decorId})`;
+    }
+
+    if (isTextObject(obj)) {
+      const text = String((obj as any).text || "").replace(/\s+/g, " ").trim();
+      return text ? `Text: ${text.slice(0, 32)}` : "Text";
+    }
+    if (isImageObject(obj)) return "Image";
+    if (obj.type === "rect") return "Shape: Rectangle";
+    if (obj.type === "circle") return "Shape: Circle";
+    if (obj.type === "triangle") return "Shape: Triangle";
+    if (obj.type === "line") return "Shape: Line";
+    if (obj.type === "group") return "Group";
+    return obj.type ? String(obj.type) : "Object";
+  }
+
   function moveLayer(direction: "up" | "down") {
     const activeObjects = canvas.getActiveObjects();
     const targets = activeObjects.length > 0
@@ -1609,6 +1664,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     if (isLockedDecorationId(objectId)) return;
     bringDecorationsToFront(canvas);
     pushHistory();
+    if (onCanvasChangeRef) onCanvasChangeRef();
   };
 
   const onTextChanged = (event: fabric.IEvent) => {
@@ -1620,6 +1676,7 @@ export function createPageCanvas(options: CreateCanvasOptions) {
       textChangeTimer = null;
       pushHistory();
       emitSelectionStyle();
+      if (onCanvasChangeRef) onCanvasChangeRef();
     }, 120);
   };
 
@@ -1815,6 +1872,42 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         { crossOrigin: "anonymous" }
       );
     },
+    addShape(shape) {
+      const centerX = canvas.getWidth() / 2;
+      const centerY = canvas.getHeight() / 2;
+      const common = {
+        left: centerX - 80,
+        top: centerY - 80,
+        fill: "rgba(0,0,0,0)",
+        stroke: "#111827",
+        strokeWidth: 2,
+        data: { reviewItemId: crypto.randomUUID() }
+      } as const;
+
+      let obj: fabric.Object | null = null;
+      if (shape === "rect") {
+        obj = new fabric.Rect({ ...common, width: 160, height: 120, rx: 0, ry: 0 });
+      } else if (shape === "circle") {
+        obj = new fabric.Circle({ ...common, radius: 60 });
+      } else if (shape === "triangle") {
+        obj = new fabric.Triangle({ ...common, width: 160, height: 140 });
+      } else if (shape === "line") {
+        obj = new fabric.Line([0, 0, 200, 0], {
+          left: centerX - 100,
+          top: centerY,
+          stroke: "#111827",
+          strokeWidth: 3,
+          data: { reviewItemId: crypto.randomUUID() }
+        });
+      }
+
+      if (!obj) return;
+      canvas.add(obj);
+      canvas.setActiveObject(obj);
+      canvas.requestRenderAll();
+      pushHistory();
+      emitSelectionStyle();
+    },
     copy() {
       const active = canvas.getActiveObject();
       if (!active) return;
@@ -1907,6 +2000,56 @@ export function createPageCanvas(options: CreateCanvasOptions) {
     },
     async getPageImage() {
       return canvas.toDataURL({ multiplier: 2, format: "jpeg", quality: 0.86 });
+    },
+    getPageHierarchy() {
+      const selected = canvas.getActiveObjects();
+      const selectedKeys = selected.map((obj) => getHierarchyKey(obj));
+      const items = canvas.getObjects().map((obj) => {
+        const decorId = obj?.data?.id;
+        const locked =
+          isUserLockedObject(obj) ||
+          (typeof decorId === "string" && isLockedDecorationId(decorId));
+        const visible = (obj as any).visible !== false;
+        const canDelete = !isBomObject(obj) && !(typeof decorId === "string" && isLockedDecorationId(decorId));
+        return {
+          key: getHierarchyKey(obj),
+          label: objectLabel(obj),
+          objectType: String(obj.type || "object"),
+          visible,
+          locked,
+          canDelete
+        };
+      });
+      return { items, selectedKeys };
+    },
+    selectHierarchyItem(key) {
+      const obj = findHierarchyObject(key);
+      if (!obj) return;
+      canvas.setActiveObject(obj);
+      canvas.requestRenderAll();
+      emitSelectionStyle();
+    },
+    toggleHierarchyItemVisibility(key) {
+      const obj = findHierarchyObject(key);
+      if (!obj) return;
+      if (isBomObject(obj)) return;
+      const next = (obj as any).visible === false;
+      obj.set({ visible: next });
+      canvas.requestRenderAll();
+      pushHistory();
+      emitSelectionStyle();
+    },
+    deleteHierarchyItem(key) {
+      const obj = findHierarchyObject(key);
+      if (!obj) return;
+      const decorId = obj?.data?.id;
+      if (isBomObject(obj)) return;
+      if (typeof decorId === "string" && isLockedDecorationId(decorId)) return;
+      if (canvas.getActiveObject() === obj) canvas.discardActiveObject();
+      canvas.remove(obj);
+      canvas.requestRenderAll();
+      pushHistory();
+      emitSelectionStyle();
     }
   };
 
@@ -1926,11 +2069,13 @@ export function createPageCanvas(options: CreateCanvasOptions) {
         opacity: number;
         hasSelection: boolean;
         canEditTextStyle: boolean;
-      }) => void
+      }) => void,
+      nextOnCanvasChange?: () => void
     ) {
       onPageChangeRef = nextOnPageChange;
       onReadyRef = nextOnReady;
       onTextSelectionChangeRef = nextOnTextSelectionChange;
+      onCanvasChangeRef = nextOnCanvasChange;
     },
     setHeaderFooter(next: {
       headerText?: string;

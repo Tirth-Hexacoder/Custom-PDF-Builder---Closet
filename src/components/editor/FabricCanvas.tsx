@@ -7,6 +7,7 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
     page,
     onPageChange,
     onReady,
+    onCanvasChange,
     onTextSelectionChange,
     headerText,
     headerProjectName,
@@ -30,6 +31,7 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
       page,
       onPageChange,
       onReady,
+      onCanvasChange,
       onTextSelectionChange,
       headerText,
       headerProjectName,
@@ -48,8 +50,8 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(fu
 
   // Changing of the Canvas (Page) Reference/Target
   useEffect(() => {
-    apiRef.current?.setCallbacks(onPageChange, onReady, onTextSelectionChange);
-  }, [onPageChange, onReady, onTextSelectionChange]);
+    apiRef.current?.setCallbacks(onPageChange, onReady, onTextSelectionChange, onCanvasChange);
+  }, [onPageChange, onReady, onTextSelectionChange, onCanvasChange]);
 
   // Add Header and Footer When Data is Changed or New Pages are Added
   useEffect(() => {
